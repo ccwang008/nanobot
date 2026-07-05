@@ -1,0 +1,911 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inside nanobot</title>
+<meta name="description" content="An interactive course on how nanobot works, built from its own source code.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,wght@0,400;0,500;0,700;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<style>
+  :root {
+    --accent: #E15B3F;
+    --accent-dark: #B8432B;
+    --accent-soft: #F7DDD2;
+    --accent-contrast: #FFFFFF;
+  }
+</style>
+</head>
+<body>
+<nav class="nav-dots" aria-label="Module navigation">
+<button class="nav-dot" data-target="module-1" aria-label="1. One message's journey"></button>
+<button class="nav-dot" data-target="module-2" aria-label="2. Meet the cast"></button>
+<button class="nav-dot" data-target="module-3" aria-label="3. Anatomy of a turn"></button>
+<button class="nav-dot" data-target="module-4" aria-label="4. The outside world"></button>
+<button class="nav-dot" data-target="module-5" aria-label="5. The clever tricks"></button>
+<button class="nav-dot" data-target="module-6" aria-label="6. The big picture"></button>
+</nav>
+<header class="course-header">
+  <p class="course-kicker">An interactive course, built from the source</p>
+  <h1 class="course-title">Inside nanobot</h1>
+  <p class="course-subtitle">How your own AI agent actually works under the hood — for people who steer AI tools, not memorize CS theory.</p>
+</header>
+<main class="course-main">
+<section class="module module-a" id="module-1">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 1</p>
+    <h2 class="module-title">Meet nanobot: one message's journey</h2>
+    <p class="lede">Imagine you text your nanobot on Telegram: <em>"remind me to call mom at 5pm, and check what the weather is like first."</em> Less than two seconds later you are watching it type back. This module is everything that happens in between.</p>
+
+    <div class="screen">
+      <p>First, the plain version of what nanobot even is: it is an open-source, self-hosted personal AI assistant. You run it on your own machine or server, it connects to chat apps you already use &mdash; Telegram, Discord, Slack, WeChat, a built-in web chat window, and more &mdash; and it talks to a large language model (Claude, GPT, and others) as its "brain." It can also use tools to actually get things done, not just chat: reading and writing files, running commands, searching the web. The project's own tagline is blunt about it: an open-source, ultra-lightweight personal AI agent you can truly own.</p>
+
+      <p><strong>Why should you care how the message travels?</strong> Once you can picture this whole round trip, you can tell an AI coding tool exactly <em>where</em> to add a feature &mdash; "that belongs in a channel, not in the core loop" &mdash; instead of guessing. And when something breaks, you already know which of the handful of stops to suspect first.</p>
+
+      <p>Here is a way to hold the whole trip in your head: sending a message to nanobot is like dropping a letter in a mailbox. It travels to a sorting facility, gets picked up by a caseworker who reads it, may send runners out to fetch things &mdash; a weather report, a calendar lookup &mdash; or write something on your behalf, and then a reply comes back through the same path. This module walks that whole route once, at a human pace. Every later module will zoom into one single stop along it.</p>
+    </div>
+
+    <div class="screen">
+      <p>Here is the whole route, stop by stop. Step through it.</p>
+
+      <div class="flow-animation" data-steps='[
+        {"active":["channel-send"],"packetFrom":0,"packetTo":0,"packetProgress":1,"caption":"You type your message into Telegram and hit send."},
+        {"active":["bus-in"],"packetFrom":0,"packetTo":1,"packetProgress":1,"caption":"The Telegram channel drops it into MessageBus in-tray -- first come, first served."},
+        {"active":["loop"],"packetFrom":1,"packetTo":2,"packetProgress":1,"caption":"AgentLoop, the caseworker who never stops watching the in-tray, picks it up and opens a case for this conversation."},
+        {"active":["runner"],"packetFrom":2,"packetTo":3,"packetProgress":1,"caption":"AgentRunner hands it to the LLM brain, which may send runners out for tools like checking the weather, before writing a reply."},
+        {"active":["bus-out"],"packetFrom":3,"packetTo":4,"packetProgress":1,"caption":"The finished reply is dropped in the out-tray, addressed back to your Telegram chat."},
+        {"active":["channel-deliver"],"packetFrom":4,"packetTo":5,"packetProgress":1,"caption":"The Telegram channel, watching the out-tray, delivers it. Round trip done, often in under two seconds."}
+      ]'>
+        <div class="flow-track">
+          <div class="flow-node" data-id="channel-send">Telegram<br><small>you send</small></div>
+          <div class="flow-node" data-id="bus-in">MessageBus<br><small>in-tray</small></div>
+          <div class="flow-node" data-id="loop">AgentLoop<br><small>caseworker</small></div>
+          <div class="flow-node" data-id="runner">AgentRunner<br><small>+ LLM, + tools</small></div>
+          <div class="flow-node" data-id="bus-out">MessageBus<br><small>out-tray</small></div>
+          <div class="flow-node" data-id="channel-deliver">Telegram<br><small>delivered</small></div>
+          <div class="flow-packet"></div>
+        </div>
+        <div class="flow-caption"></div>
+        <div class="flow-controls">
+          <button class="flow-step-btn" data-dir="prev">&larr; Back</button>
+          <span class="flow-progress"></span>
+          <button class="flow-step-btn" data-dir="next">Next &rarr;</button>
+          <button class="flow-replay">Replay</button>
+        </div>
+      </div>
+
+      <p>Notice that "MessageBus" shows up twice &mdash; once as an in-tray, once as an out-tray. That is not two different components, it is one shared post office with two windows. Keep scrolling and we will look at the actual code behind each stop.</p>
+    </div>
+
+    <div class="screen">
+      <p>The entire post office &mdash; the in-tray and out-tray from the animation above &mdash; is remarkably small. Here is essentially all of it.</p>
+
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/bus/queue.py:16-34</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">__init__</span>(self):
+    self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue()
+    self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue()
+
+<span class="tok-kw">async def</span> <span class="tok-fn">publish_inbound</span>(self, msg: InboundMessage) -> <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Publish a message from a channel to the agent."""</span>
+    <span class="tok-kw">await</span> self.inbound.put(msg)
+
+<span class="tok-kw">async def</span> <span class="tok-fn">consume_inbound</span>(self) -> InboundMessage:
+    <span class="tok-str">"""Consume the next inbound message (blocks until available)."""</span>
+    <span class="tok-kw">return</span> <span class="tok-kw">await</span> self.inbound.get()
+
+<span class="tok-kw">async def</span> <span class="tok-fn">publish_outbound</span>(self, msg: OutboundMessage) -> <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Publish a response from the agent to channels."""</span>
+    <span class="tok-kw">await</span> self.outbound.put(msg)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>This whole class is really just two lines that matter: an in-tray (<code>inbound</code>) and an out-tray (<code>outbound</code>). Both are a <span class="glossary" tabindex="0">queue<span class="glossary-tip">A list where things get added at one end and taken off the other, in order &mdash; like a single-file line at a mailroom window. First come, first served.</span></span>: whichever message arrived first gets picked up first.</p>
+          <p>Every chat platform &mdash; Telegram, Slack, the web UI, all of them &mdash; drops its letters into that exact same in-tray. Nothing about the sorting facility needs to know which mailbox any given letter came from.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Two independent queues, one for "in" and one for "out," is a classic pattern called a <strong>message bus</strong>. It lets two halves of a system &mdash; here, the chat channels and the agent's brain &mdash; talk to each other without either one ever needing to know how the other works internally. That is also exactly why nanobot can support a dozen chat platforms and several different AI providers without its core code caring which ones happen to be in use.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So who is actually standing at that in-tray window, watching for new letters? That is <code>AgentLoop</code>, and its main job is a loop that never really stops.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:938-946</span>
+        <pre><code><span class="tok-kw">try</span>:
+    msg = <span class="tok-kw">await</span> asyncio.wait_for(self.bus.consume_inbound(), timeout=<span class="tok-num">1.0</span>)
+<span class="tok-kw">except</span> asyncio.TimeoutError:
+    self.auto_compact.check_expired(
+        self._schedule_background,
+        active_session_keys=self._pending_queues.keys(),
+    )
+    <span class="tok-kw">continue</span></code></pre>
+      </div>
+
+      <p>In plain English: it waits up to one second for a new letter to arrive. If nothing shows up in that second, it does not just sit idle &mdash; it uses the moment to do housekeeping, checking whether any conversation has gone quiet long enough that its memory should be tidied up, then goes right back to waiting.</p>
+
+      <p>That "wait, but do something useful instead of standing frozen" trick is possible because the whole loop is written as an <span class="glossary" tabindex="0">async task<span class="glossary-tip">Doing something and moving on to other work while it finishes, instead of standing still and waiting &mdash; like AgentLoop starting an errand for your message and immediately going back to watch for the next one.</span></span>. Nothing here demands your CPU sit and twiddle its thumbs for a whole second doing nothing.</p>
+    </div>
+
+    <div class="screen">
+      <p>Once AgentLoop actually has your letter in hand, it does something important: it does not sit there answering you before it is allowed to glance at anyone else's mail.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:1016-1017</span>
+        <pre><code>task = asyncio.create_task(self._dispatch(msg))
+self._active_tasks.setdefault(effective_key, []).append(task)</code></pre>
+      </div>
+
+      <p>It spins your message off as its own independent errand (that async task again) and immediately goes back to watching the in-tray for the next letter. Your conversation and someone else's conversation on a different chat can genuinely be in progress at the same time. <em>(Module 3 covers exactly how nanobot still keeps your own conversation in the right order while doing this.)</em></p>
+
+      <p>Somewhere inside that errand, <code>AgentRunner</code> is the one actually talking to the LLM and, if the model asks for it, dispatching "runners" out for tools &mdash; checking the weather, writing your reminder down. That is a whole module on its own later; for now, just picture it as the desk where your letter gets read and answered. Once it has an answer, the last step is simple.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:1087-1088</span>
+        <pre><code><span class="tok-kw">if</span> response <span class="tok-kw">is not</span> <span class="tok-kw">None</span>:
+    <span class="tok-kw">await</span> self.bus.publish_outbound(response)</code></pre>
+      </div>
+
+      <p>Same trick, in reverse: the reply goes into the shared out-tray, and whichever channel adapter is watching for mail addressed to your Telegram chat picks it up and delivers it. That is the last stop in the animation above.</p>
+    </div>
+
+    <div class="screen">
+      <p>Quick check before we move on.</p>
+
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">When your message arrives, does nanobot handle it immediately, or does it get in line?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="Not quite -- your message always passes through the MessageBus queue first, even if it usually only waits a fraction of a second.">It skips straight to AgentRunner, no queue involved</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right -- MessageBus is a queue, so your message gets in line in the in-tray. It is usually picked up almost instantly because AgentLoop is always watching, but it is still a line, not a shortcut.">It is placed in the in-tray queue and picked up in order, usually within a fraction of a second</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="nanobot does not drop messages when it is busy -- that is the whole point of the queue: nothing gets lost, it just waits its turn.">It gets dropped if AgentLoop is busy with someone else</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+
+      <p>The key thing to carry forward: nanobot's core is deliberately small, and a message is handed from stop to stop like a letter changing hands. Every stop only knows how to do its own one job &mdash; the in-tray does not need to know what a caseworker does, and the caseworker does not need to know how Telegram formats its messages. That separation of concerns is exactly why nanobot can support a dozen chat platforms and several AI providers without the core ever needing to change.</p>
+
+      <p>We just watched the whole trip happen, start to finish. Next: meet everyone working at each stop along that route.</p>
+    </div>
+  </div>
+</section>
+
+<section class="module module-b" id="module-2">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 2</p>
+    <h2 class="module-title">Meet the cast</h2>
+    <p class="lede">We just watched a letter travel the whole route. Now let's meet everyone working at each stop — the way a theater program lists its cast and crew before the curtain goes up, so you know exactly who's responsible for what before the show starts.</p>
+
+    <div class="screen">
+      <p>Knowing which actor owns which job is exactly what lets you tell an AI coding tool "add this feature as a new channel" or "that belongs in the prop table, not the director's script" — and to guess correctly which file to open when something breaks. Here's the full cast:</p>
+
+      <div class="pattern-grid">
+        <div class="pattern-card"><h4>Channels</h4><p>The ushers who speak the audience's language — each one translates a different platform's way of sending a message into one common form everyone backstage understands.</p></div>
+        <div class="pattern-card"><h4>MessageBus</h4><p>The stage manager's call sheet — the shared list everyone reads from and writes to, so the ushers never need to talk to the actors directly.</p></div>
+        <div class="pattern-card"><h4>AgentLoop</h4><p>The director — owns the whole show for one conversation: decides what happens next, in what order, and calls the cues.</p></div>
+        <div class="pattern-card"><h4>AgentRunner</h4><p>The lead actor actually improvising the scene — on stage doing the back-and-forth with the LLM and requesting props (tools) when needed.</p></div>
+        <div class="pattern-card"><h4>ToolRegistry</h4><p>The prop table — everything the actor is allowed to reach for, catalogued and ready to hand over on request.</p></div>
+        <div class="pattern-card"><h4>Providers</h4><p>The scriptwriter — the LLM actually generating the lines; nanobot can swap which scriptwriter it's using without changing anyone else's job.</p></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Start with the ushers. Telegram, Discord, Slack, the web UI, and a dozen-plus others all speak differently under the hood — different APIs, different message formats. Every one of them is required to sign the same <span class="glossary" tabindex="0">contract<span class="glossary-tip">A rulebook every implementation must follow, even though each one fills in the details differently. In code this is often called an "abstract class" — a template that says "you must have a method called X," without saying how X works.</span></span> before it's allowed backstage.</p>
+
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/channels/base.py:74-102</span>
+          <pre><code><span class="tok-kw">@abstractmethod</span>
+<span class="tok-kw">async def</span> <span class="tok-fn">start</span>(self) -&gt; None:
+    <span class="tok-str">"""
+    Start the channel and begin listening for messages.
+    This should be a long-running async task that:
+    1. Connects to the chat platform
+    2. Listens for incoming messages
+    3. Forwards messages to the bus via _handle_message()
+    """</span>
+
+<span class="tok-kw">@abstractmethod</span>
+<span class="tok-kw">async def</span> <span class="tok-fn">stop</span>(self) -&gt; None:
+    <span class="tok-str">"""Stop the channel and clean up resources."""</span>
+
+<span class="tok-kw">@abstractmethod</span>
+<span class="tok-kw">async def</span> <span class="tok-fn">send</span>(self, msg: OutboundMessage) -&gt; None:
+    <span class="tok-str">"""Send a message through this channel."""</span></code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>This is the contract every usher must sign. However Telegram's API and Slack's API differ under the hood, both must know how to start listening, stop, and hand a reply to their platform. Nobody else in the codebase needs to know those differences exist.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>You'd think adding a 16th usher means updating some master list somewhere. It doesn't.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/channels/manager.py:96-104</span>
+        <pre><code><span class="tok-kw">def</span> <span class="tok-fn">_init_channels</span>(self) -&gt; None:
+    <span class="tok-str">"""Initialize channels discovered via pkgutil scan + entry_points plugins."""</span>
+    <span class="tok-kw">from</span> nanobot.channels.registry <span class="tok-kw">import</span> discover_channel_names, discover_enabled
+    <span class="tok-com"># Collect enabled module names first, then only import those.</span>
+    names = discover_channel_names()</code></pre>
+      </div>
+
+      <p>nanobot scans its own <code>channels/</code> folder — and any installed plugins — for anything that looks like a channel, rather than keeping a hardcoded list somewhere that someone has to remember to update. Add a new file that follows the contract from the last screen, and it's automatically found and put to work.</p>
+
+      <p>Once a message is in, it doesn't go straight to an actor. It gets dropped on the stage manager's call sheet — the <strong>MessageBus</strong> — and the director picks it up from there. That indirection is the whole point: the usher never needs to know or care which director is on duty, or what they're doing right now.</p>
+    </div>
+
+    <div class="screen">
+      <p>Once the director hands a scene to the lead actor, that actor sometimes needs a prop — read a file, run a shell command, search the web. It doesn't wander off backstage looking for one. It requests a prop <em>by name</em> from the prop table, and the prop table hands it over — or refuses, if that prop was never catalogued.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/tools/registry.py:24-27</span>
+        <pre><code><span class="tok-kw">def</span> <span class="tok-fn">register</span>(self, tool: Tool) -&gt; None:
+    <span class="tok-str">"""Register a tool."""</span>
+    self._tools[tool.name] = tool
+    self._cached_definitions = <span class="tok-kw">None</span></code></pre>
+      </div>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/tools/registry.py:165-179</span>
+        <pre><code><span class="tok-kw">async def</span> <span class="tok-fn">execute</span>(self, name: str, params: Any) -&gt; Any:
+    <span class="tok-str">"""Execute a tool by name with given parameters."""</span>
+    hint = <span class="tok-str">"\n\n[Analyze the error above and try a different approach.]"</span>
+    tool, params, error = self.prepare_call(name, params)
+    <span class="tok-kw">if</span> error:
+        <span class="tok-kw">return</span> ToolResult.error(str(error) + hint)
+    <span class="tok-kw">try</span>:
+        <span class="tok-kw">assert</span> tool <span class="tok-kw">is not</span> <span class="tok-kw">None</span>
+        result = <span class="tok-kw">await</span> tool.execute(**params)
+        <span class="tok-punct">...</span></code></pre>
+      </div>
+
+      <p>This <span class="glossary" tabindex="0">registry<span class="glossary-tip">A lookup table you can add new entries to without changing the code that reads from it.</span></span> is, at heart, just a dictionary from tool name to tool object. When the LLM says "call <code>read_file</code> with this path," the registry looks the name up, validates the arguments, and only then actually runs it. The lead actor never touches the filesystem directly — it always goes through the prop table.</p>
+    </div>
+
+    <div class="screen">
+      <p>So who decides the director gets a lead actor to direct in the first place? One line, buried in setup:</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:294</span>
+        <pre><code>self.runner = <span class="tok-fn">AgentRunner</span>(provider)</code></pre>
+      </div>
+
+      <p>That's the seam between this module's two most important actors. The director (<code>AgentLoop</code>) owns the conversation and its memory. The lead actor (<code>AgentRunner</code>, next module's subject) owns the actual back-and-forth with the LLM and its props, one turn at a time.</p>
+
+      <p>And the lead actor's lines don't come from nowhere — they come from the scriptwriter. nanobot supports several: Claude, GPT, and others, all hidden behind one shared shape.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/providers/base.py:724-736</span>
+        <pre><code><span class="tok-kw">async def</span> <span class="tok-fn">chat_with_retry</span>(
+    self,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+    model: str | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+    <span class="tok-punct">...</span>
+    retry_mode: str = <span class="tok-str">"standard"</span>,
+    on_retry_wait: Callable[[str], Awaitable[<span class="tok-kw">None</span>]] | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+) -&gt; LLMResponse:
+    <span class="tok-str">"""Call chat() with retry on transient provider failures."""</span></code></pre>
+      </div>
+
+      <p>Every provider — Anthropic, OpenAI, Azure, Bedrock, and the rest — shares this same method name and shape. If the scriptwriter's line is temporarily unavailable — a rate limit, a dropped connection — this automatically waits and asks again. The rest of the cast never needs to know that happened.</p>
+    </div>
+
+    <div class="screen">
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Notice nobody here needs to change <code>AgentLoop</code> itself to add a 16th chat platform or a new AI provider. That's what software people call a <strong>stable core with pluggable edges</strong> — it's why large systems don't collapse under their own feature list as they grow.</p>
+      </div>
+
+      <p>Every actor you just met is replaceable on its own. Add a 16th channel, swap the scriptwriter for a different LLM, or add a new tool to the prop table — all without touching the director's script. That's a deliberate design rule in this codebase, not an accident. Match each actor to its job before moving on:</p>
+
+      <div class="quiz dragdrop" data-quiz="dragdrop">
+        <div class="dragdrop-chips">
+          <span class="dragdrop-chip" draggable="true" data-value="channels">Channels</span>
+          <span class="dragdrop-chip" draggable="true" data-value="bus">MessageBus</span>
+          <span class="dragdrop-chip" draggable="true" data-value="loop">AgentLoop</span>
+          <span class="dragdrop-chip" draggable="true" data-value="runner">AgentRunner</span>
+          <span class="dragdrop-chip" draggable="true" data-value="registry">ToolRegistry</span>
+          <span class="dragdrop-chip" draggable="true" data-value="provider">Providers</span>
+        </div>
+        <div class="dragdrop-zones">
+          <div class="dragdrop-zone" data-answer="registry"><span class="zone-label">The catalogue of things the actor is allowed to use</span></div>
+          <div class="dragdrop-zone" data-answer="loop"><span class="zone-label">Owns one conversation and decides what happens next</span></div>
+          <div class="dragdrop-zone" data-answer="channels"><span class="zone-label">Translates a chat platform's format into one common message shape</span></div>
+          <div class="dragdrop-zone" data-answer="provider"><span class="zone-label">Actually generates the LLM's lines, and can be swapped out</span></div>
+          <div class="dragdrop-zone" data-answer="bus"><span class="zone-label">The shared list everyone reads from and writes to</span></div>
+          <div class="dragdrop-zone" data-answer="runner"><span class="zone-label">Does the live back-and-forth with the LLM and its props</span></div>
+        </div>
+        <div class="quiz-feedback"></div>
+      </div>
+
+      <p>Knowing who's who is step one. Next: watch the director (<code>AgentLoop</code>) and lead actor (<code>AgentRunner</code>) actually run one scene from first line to last, including what happens when two lines want to be spoken at once.</p>
+    </div>
+  </div>
+</section>
+
+<section class="module module-a" id="module-3">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 3</p>
+    <h2 class="module-title">Anatomy of a turn</h2>
+    <p class="lede">Module 2 introduced the director and lead actor. Now watch them run one full scene, station by station — because when a conversation feels "stuck," or a reply mysteriously "forgets" something, knowing the fixed sequence of stations lets you point an AI tool at the <em>one</em> station that's misbehaving instead of "just look at the whole agent."</p>
+
+    <div class="screen">
+      <p>Think of one <strong>turn</strong> — one message in, one reply out — as a factory assembly line, or a relay race with fixed stations. The work doesn't happen in one big step. It moves forward, station by station, and each station does exactly one job before handing the (increasingly-finished) work to the next runner. Nobody skips a station out of order.</p>
+      <p>nanobot names every station in the line, right in one place — nothing is hidden elsewhere in the code:</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:90-98</span>
+        <pre><code><span class="tok-kw">class</span> <span class="tok-fn">TurnState</span>(Enum):
+    RESTORE = <span class="tok-fn">auto</span>()
+    COMPACT = <span class="tok-fn">auto</span>()
+    COMMAND = <span class="tok-fn">auto</span>()
+    BUILD = <span class="tok-fn">auto</span>()
+    RUN = <span class="tok-fn">auto</span>()
+    SAVE = <span class="tok-fn">auto</span>()
+    RESPOND = <span class="tok-fn">auto</span>()
+    DONE = <span class="tok-fn">auto</span>()</code></pre>
+      </div>
+      <p>That's the whole route, top to bottom: RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE.</p>
+    </div>
+
+    <div class="screen">
+      <p>A list of station names isn't enough on its own — something has to decide what comes <em>next</em>. nanobot keeps that decision in one small rulebook, a lookup table of "if you're here, and this happened, go there":</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:183-192</span>
+        <pre><code>_TRANSITIONS: dict[tuple[TurnState, str], TurnState] = {
+    (TurnState.RESTORE, <span class="tok-str">"ok"</span>): TurnState.COMPACT,
+    (TurnState.COMPACT, <span class="tok-str">"ok"</span>): TurnState.COMMAND,
+    (TurnState.COMMAND, <span class="tok-str">"dispatch"</span>): TurnState.BUILD,
+    (TurnState.COMMAND, <span class="tok-str">"shortcut"</span>): TurnState.DONE,
+    (TurnState.BUILD, <span class="tok-str">"ok"</span>): TurnState.RUN,
+    (TurnState.RUN, <span class="tok-str">"ok"</span>): TurnState.SAVE,
+    (TurnState.SAVE, <span class="tok-str">"ok"</span>): TurnState.RESPOND,
+    (TurnState.RESPOND, <span class="tok-str">"ok"</span>): TurnState.DONE,
+}</code></pre>
+      </div>
+      <p>Each station finishes and reports back one word — almost always <code>"ok"</code>, meaning "done, keep going." This setup is called a <span class="glossary" tabindex="0">state machine<span class="glossary-tip">A system that is always in exactly one named state (station), with explicit rules for what state comes next. Instead of a tangle of if/else scattered everywhere, you get one small table you can read start to finish.</span></span>.</p>
+      <p>Look closely at COMMAND: it has <em>two</em> possible exits. Type a slash command like <code>/new</code>, and it takes the <code>"shortcut"</code> lane straight to DONE — skipping BUILD, RUN, and SAVE entirely. There's no need to ask the LLM anything for a command nanobot already knows how to handle itself.</p>
+    </div>
+
+    <div class="screen">
+      <p>What does each station actually do? Here's the whole relay, translated:</p>
+      <div class="pattern-grid">
+        <div class="pattern-card"><h4>RESTORE</h4><p>Recover any in-progress work left over from before a crash or interruption, and pull out any attached files or images.</p></div>
+        <div class="pattern-card"><h4>COMPACT</h4><p>Check whether this conversation's history has grown too long and needs summarizing first, before doing anything else.</p></div>
+        <div class="pattern-card"><h4>COMMAND</h4><p>Check whether the message is a slash command like <code>/new</code> or <code>/stop</code>. If so, handle it directly and take the shortcut exit.</p></div>
+        <div class="pattern-card"><h4>BUILD</h4><p>Assemble everything the LLM needs to see: the conversation history, the new message, and the current list of tools it's allowed to use.</p></div>
+        <div class="pattern-card"><h4>RUN</h4><p>The actual back-and-forth with the LLM and its tools — this is where Module 2's lead actor, AgentRunner, takes over.</p></div>
+        <div class="pattern-card"><h4>SAVE</h4><p>Write the finished turn to the conversation's permanent history, so it's there next time.</p></div>
+        <div class="pattern-card"><h4>RESPOND</h4><p>Package the final reply and send it back down the pipe to the channel — Telegram, Slack, wherever it came from.</p></div>
+        <div class="pattern-card"><h4>DONE</h4><p>The finish line. This turn is fully closed out; nanobot waits for whatever message arrives next.</p></div>
+      </div>
+      <p class="module-caption">(Functions: <code>_state_restore</code>, <code>_state_compact</code>, <code>_state_command</code>, <code>_state_build</code>, <code>_state_run</code>, <code>_state_save</code>, <code>_state_respond</code> — <span class="filename">loop.py:1446-1633</span>)</p>
+    </div>
+
+    <div class="screen">
+      <p>The line runs one station at a time for a given conversation — but different conversations don't wait on each other at all. Each one gets its own turnstile:</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/loop.py:1033-1042</span>
+          <pre><code>lock = self._session_locks.setdefault(session_key, asyncio.Lock())
+gate = self._concurrency_gate or nullcontext()
+
+pending: asyncio.Queue | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>
+<span class="tok-kw">try</span>:
+    <span class="tok-kw">async with</span> lock, gate:
+        <span class="tok-com"># Only the task that owns the session lock may publish the</span>
+        <span class="tok-com"># active mid-turn injection queue for this session.</span>
+        pending = asyncio.Queue(maxsize=<span class="tok-num">20</span>)
+        self._pending_queues[session_key] = pending</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Every conversation gets its own <span class="glossary" tabindex="0">lock<span class="glossary-tip">A rule that only one thing at a time can hold — like a single key to a single door. Whoever has the key goes through; everyone else waits their turn for that same door.</span></span> — a single-occupancy turnstile. Your conversation with nanobot can't have two turns processing at once and tripping over each other, but someone else's DM, or a different chat entirely, has its own separate turnstile and runs fully in parallel.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So what happens if <em>you</em> send a follow-up message while nanobot is still mid-reply to your first one? It doesn't start a second, competing turn:</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:986-1002</span>
+        <pre><code><span class="tok-kw">if</span> effective_key <span class="tok-kw">in</span> self._pending_queues:
+    <span class="tok-kw">if</span> self.commands.is_dispatchable_command(raw):
+        <span class="tok-kw">await</span> self._dispatch_command_inline(...)
+        <span class="tok-kw">continue</span>
+    pending_msg = msg
+    ...
+    <span class="tok-kw">try</span>:
+        self._pending_queues[effective_key].put_nowait(pending_msg)
+    ...
+    <span class="tok-kw">else</span>:
+        logger.info(
+            <span class="tok-str">"Routed follow-up message to pending queue for session {}"</span>,
+            effective_key,
+        )
+        <span class="tok-kw">continue</span></code></pre>
+      </div>
+      <p>Your second message gets slipped into a small waiting line for <em>that same conversation's</em> current turn to notice and fold in — rather than nanobot trying to answer both at once and potentially replying twice, out of order.</p>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">You send nanobot two messages in a row before it's replied to the first. What happens?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="Close — but nanobot doesn't drop it. It's noticed and folded in later.">The second message is silently ignored</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right — it's slipped into a small pending queue for that conversation's current turn to pick up, instead of starting a competing turn.">It waits in a small queue for that same conversation's current turn to notice</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="This is exactly what nanobot avoids — two turns racing on one conversation could reply twice, out of order.">nanobot starts a second, parallel turn to answer both messages at once</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Inside the RUN station specifically, there's another shortcut worth knowing: tool calls that don't depend on each other don't wait in line either.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/runner.py:1138-1145</span>
+          <pre><code><span class="tok-kw">if</span> spec.concurrent_tools <span class="tok-kw">and</span> <span class="tok-fn">len</span>(batch) > <span class="tok-num">1</span>:
+    batch_results = <span class="tok-kw">await</span> asyncio.gather(*(
+        self._run_tool(
+            spec, tool_call, external_lookup_counts, workspace_violation_counts,
+        )
+        <span class="tok-kw">for</span> tool_call <span class="tok-kw">in</span> batch
+    ))
+    tool_results.extend(batch_results)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>If the LLM asks for three things at once — say, check the weather, read a file, and search the web — none of those three need to wait on each other. nanobot fires them all off together and waits for all three to finish, instead of doing them one at a time.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now watch the whole relay run, start to finish, for one real message:</p>
+      <div class="chat-window" data-autoplay data-speed="900">
+        <div class="chat-title">#agent-internals <button class="chat-replay">Replay</button></div>
+        <div class="chat-log">
+          <div class="chat-bubble system">New message: session tg:8821</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Restoring state, checking history length... looks fine, no compaction needed.</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Not a slash command — building the prompt now.</div>
+          <div class="chat-bubble right"><span class="who">AgentRunner</span>Calling the model with 12 tools available...</div>
+          <div class="chat-bubble right"><span class="who">AgentRunner</span>Model wants <code>get_weather</code> and <code>read_file</code> — running both at once.</div>
+          <div class="chat-bubble right"><span class="who">AgentRunner</span>Both done. Sending results back to the model for a final answer.</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Saving this turn to history and sending the reply.</div>
+        </div>
+      </div>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Any time a process has "phases" — a checkout flow, a deploy pipeline, an onboarding wizard — a state machine like this one is often how it's actually built under the hood. It's also exactly why good logs name the phase, not just "something broke": a table of named stations turns "the agent is misbehaving" into "RUN failed on this turn," a question an AI tool can actually go answer.</p>
+      </div>
+      <p>Everything so far has happened inside nanobot's own walls. Next: what happens the moment nanobot needs to reach <em>outside</em> — a different chat platform, a different AI provider, or the open internet.</p>
+    </div>
+  </div>
+</section>
+
+<section class="module module-b" id="module-4">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 4</p>
+    <h2 class="module-title">The outside world</h2>
+    <p class="lede">Module 3 watched one turn run start to finish, entirely inside nanobot's own building. This module is about the border around that building — the interpreters waiting at the gate, the backup interpreter who steps in when the first one calls in sick, and the one checkpoint that every outbound request has to clear before it's allowed to leave.</p>
+
+    <div class="screen">
+      <p>Think of nanobot as a building with a border crossing. People arrive speaking different languages — Telegram's dialect, Slack's dialect, Discord's — and interpreters at the gate translate every one of them into a single shared form before anything moves further inside. If the building's usual translator for talking to the AI model is unavailable, a backup translator quietly takes over, so nobody in the building even notices the swap. And anything trying to leave the building — a tool reaching out to fetch a web page, or call another server — has to pass a checkpoint that refuses to let it wander into restricted territory.</p>
+      <p>Why this matters: nanobot runs with real power — it can read your files, run shell commands, fetch URLs. This module is what lets that power exist without becoming a security hole. It's also the part of the codebase you must never let an AI coding tool "quick fix" by routing a network call around it.</p>
+    </div>
+
+    <div class="screen">
+      <p>You already met the interpreters at the gate in Module 2: every <span class="glossary" tabindex="0">channel<span class="glossary-tip">A connector to one chat platform — Telegram, Slack, Discord, and so on.</span></span> implements the same <code>start</code> / <code>stop</code> / <code>send</code> contract, so a Telegram message and a Slack message both arrive further inside as the exact same shape, an <code>InboundMessage</code>. That's the translation happening right at the door.</p>
+      <p>There's a second kind of interpreter, further in: the one that talks to the AI model itself. If you've configured backup models, nanobot doesn't wrap just one provider — it wraps a primary provider plus a list of fallbacks, ready to step in.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/providers/factory.py:184-197</span>
+          <pre><code><span class="tok-punct">resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)</span>
+<span class="tok-punct">provider = _make_provider_core(config, preset_name=preset_name, preset=preset, model=model)</span>
+<span class="tok-punct">fallback_presets = _resolve_fallback_presets(config, resolved)</span>
+
+<span class="tok-kw">if</span> fallback_presets:
+    provider = <span class="tok-fn">FallbackProvider</span>(
+        primary=provider,
+        fallback_presets=fallback_presets,
+        provider_factory=<span class="tok-kw">lambda</span> fb: <span class="tok-fn">_make_provider_core</span>(
+            config, preset_name=preset_name, preset=fb
+        ),
+    )
+
+<span class="tok-kw">return</span> provider</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>If a primary AI provider is down or rate-limited, this wrapper quietly tries the next one on the list instead. The rest of the codebase just calls "the provider" and never has to know whether it's talking to the first choice or the third — the swap is invisible from inside the building.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now the checkpoint at the outbound side of the border. Before nanobot lets any tool fetch a URL, it checks the request against a no-fly list of address ranges that mean "somewhere private," never "the public internet."</p>
+      <div class="code-block">
+        <span class="filename">nanobot/security/network.py:11-22</span>
+        <pre><code><span class="tok-punct">_BLOCKED_NETWORKS = [</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"0.0.0.0/8"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"10.0.0.0/8"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"100.64.0.0/10"</span>),   <span class="tok-com"># carrier-grade NAT</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"127.0.0.0/8"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"169.254.0.0/16"</span>),   <span class="tok-com"># link-local / cloud metadata</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"172.16.0.0/12"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"192.168.0.0/16"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"::1/128"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"fc00::/7"</span>),          <span class="tok-com"># unique local</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"fe80::/10"</span>),         <span class="tok-com"># link-local v6</span>
+<span class="tok-punct">]</span></code></pre>
+      </div>
+      <p>These ranges cover things like your own home router, a server's loopback address, and — the one that matters most for security incidents in the wild — the address cloud providers use to serve a machine's internal secrets (<code>169.254.169.254</code>, inside that link-local range). If a URL <span class="glossary" tabindex="0">resolves<span class="glossary-tip">"Resolving a hostname" means looking up the actual numeric address a web address like example.com actually points to.</span></span> to any of these, it's blocked before a single byte is fetched.</p>
+    </div>
+
+    <div class="screen">
+      <p>Here's the checkpoint function itself — every fetch anywhere in nanobot passes through it.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/security/network.py:61-77 (trimmed)</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">validate_url_target</span>(url: <span class="tok-kw">str</span>, *, allow_loopback: <span class="tok-kw">bool</span> = <span class="tok-kw">False</span>) -> <span class="tok-kw">tuple</span>[<span class="tok-kw">bool</span>, <span class="tok-kw">str</span>]:
+    <span class="tok-str">"""Validate a URL is safe to fetch: scheme, hostname, and resolved IPs."""</span>
+    <span class="tok-kw">try</span>:
+        p = <span class="tok-fn">urlparse</span>(url)
+    <span class="tok-kw">except</span> Exception <span class="tok-kw">as</span> e:
+        <span class="tok-kw">return</span> <span class="tok-kw">False</span>, <span class="tok-fn">str</span>(e)
+
+    <span class="tok-kw">if</span> p.scheme <span class="tok-kw">not in</span> (<span class="tok-str">"http"</span>, <span class="tok-str">"https"</span>):
+        <span class="tok-kw">return</span> <span class="tok-kw">False</span>, <span class="tok-str">f"Only http/https allowed, got '{p.scheme or 'none'}'"</span>
+    <span class="tok-kw">if not</span> p.netloc:
+        <span class="tok-kw">return</span> <span class="tok-kw">False</span>, <span class="tok-str">"Missing domain"</span>
+    ...</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Notice this checks the resolved address, not just the text of the URL. A sneaky domain name that looks public but is secretly pointed at an internal address still gets caught, because nanobot looks up the real destination first and checks that.</p>
+        </div>
+      </div>
+      <p>This whole family of trick — getting a server to fetch an address on your behalf that it shouldn't be able to reach — has a name: <span class="glossary" tabindex="0">SSRF<span class="glossary-tip">Server-Side Request Forgery: tricking a server into fetching an address it shouldn't be able to reach on your behalf — like tricking a hotel concierge into handing you a master key by asking very confidently.</span></span>. It's one of the most common ways a "helpful" AI tool with network access gets turned into a break-in method.</p>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Notice this check lives in exactly one function that every tool calls, instead of being copy-pasted into every tool that touches the network. A security rule that exists in twenty places is a security rule that's wrong in at least one of them — a boundary is only as trustworthy as the single place everything is forced to go through.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>When the checkpoint blocks something, nanobot doesn't just quietly fail — it tells the AI model exactly why, in words deliberately blunt enough to stop a "creative" model from trying to route around it.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/runner.py:1323-1330</span>
+        <pre><code><span class="tok-punct">_SSRF_BOUNDARY_NOTE: str = (</span>
+    <span class="tok-str">"This is a non-bypassable security boundary. Stop trying to access "</span>
+    <span class="tok-str">"private/internal URLs. Do not retry with curl, wget, encoded IPs, "</span>
+    <span class="tok-str">"alternate DNS, redirects, proxies, or another tool. Ask the user for "</span>
+    <span class="tok-str">"local files, logs, screenshots, or an explicit safe public URL instead. "</span>
+    <span class="tok-str">"If the user explicitly trusts this private URL, ask them to whitelist "</span>
+    <span class="tok-str">"the exact IP/CIDR via tools.ssrfWhitelist."</span>
+<span class="tok-punct">)</span></code></pre>
+      </div>
+      <p>That's the message the model itself sees the moment it hits the wall. It names the workarounds — curl, wget, encoded IPs, alternate DNS, redirects, proxies — and closes each one off, because a capable model might otherwise treat a security block as a bug to engineer around rather than a boundary to respect.</p>
+      <div class="flow-animation" data-steps='[
+        {"active":["tool"],"packetFrom":0,"packetTo":0,"packetProgress":1,"caption":"A tool wants to fetch a URL on the model&#39;s behalf."},
+        {"active":["checkpoint"],"packetFrom":0,"packetTo":1,"packetProgress":1,"caption":"validate_url_target checks the scheme, the hostname, and the resolved IP."},
+        {"active":["blocked"],"packetFrom":1,"packetTo":2,"packetProgress":1,"caption":"http://169.254.169.254/ resolves to cloud metadata — blocked before any request leaves the building."},
+        {"active":["allowed"],"packetFrom":1,"packetTo":3,"packetProgress":1,"caption":"https://api.weather.gov resolves to a public address — allowed through and fetched."}
+      ]'>
+        <div class="flow-track">
+          <div class="flow-node" data-id="tool">Tool call</div>
+          <div class="flow-node" data-id="checkpoint">Checkpoint</div>
+          <div class="flow-node" data-id="blocked">Blocked</div>
+          <div class="flow-node" data-id="allowed">Fetched</div>
+          <div class="flow-packet"></div>
+        </div>
+        <div class="flow-caption"></div>
+        <div class="flow-controls">
+          <button class="flow-step-btn" data-dir="prev">&larr; Back</button>
+          <span class="flow-progress"></span>
+          <button class="flow-step-btn" data-dir="next">Next &rarr;</button>
+          <button class="flow-replay">Replay</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Try it yourself: using the blocked-network ranges from earlier in this module, which of these would the checkpoint stop?</p>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">Which of these would nanobot's checkpoint block?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="example.com resolves to a normal public address — nothing in the blocked ranges matches, so this one is allowed through.">http://example.com</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Correct — 169.254.169.254 falls inside 169.254.0.0/16, the link-local range cloud providers use to serve a machine's internal metadata and secrets. Blocked.">http://169.254.169.254/</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Correct — 10.0.0.5 falls inside 10.0.0.0/8, a private network range. That's someone's internal network, not the public internet. Blocked.">http://10.0.0.5/admin</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="api.weather.gov resolves to a public government address, outside every range in _BLOCKED_NETWORKS — allowed through.">https://api.weather.gov</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+      <p>We've covered how nanobot talks to the world safely — translating everything that crosses in, backing up the interpreter that talks to the model, and checkpointing everything that tries to go back out. Next: what nanobot does with everything it learns once the conversation is over — including a genuinely clever trick borrowed from how your own brain works.</p>
+    </div>
+  </div>
+</section>
+
+<section class="module module-a" id="module-5">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 5</p>
+    <h2 class="module-title">The clever tricks: sleeping on it</h2>
+    <p class="lede">Module 4 was about nanobot's border with the outside world. This module is about what it does with everything it learns <em>after</em> it comes back inside.</p>
+
+    <div class="screen">
+      <p>You don't file away a day's experience as it happens. Your brain replays it later — while you sleep — turning a messy stream of moments into a few things actually worth keeping. nanobot does the same thing, on a schedule, and it's not a metaphor stretch: the codebase's own name for this mechanism is literally <strong>"Dream."</strong></p>
+      <p>It keeps a running, append-only diary of everything that happens (<code>history.jsonl</code>), and periodically runs a separate Dream pass — a dedicated <span class="glossary" tabindex="0">LLM call<span class="glossary-tip">A single request sent to an AI model to get one response back — here, its only job is summarizing, not chatting.</span></span> whose only job is to read the unprocessed diary entries and boil them down into durable notes (<code>MEMORY.md</code>, <code>SOUL.md</code>, <code>USER.md</code>).</p>
+      <p><strong>Why should you care?</strong> Understanding that memory consolidation happens separately from live conversation explains why nanobot can stay useful over weeks without its context window overflowing — and it's the same reason you can ask it to "keep working on this for a while" and trust it won't lose the thread.</p>
+    </div>
+
+    <div class="screen">
+      <p>First, the diary itself. Every time something happens — a message, a tool call, a result — nanobot appends one more line to <code>history.jsonl</code>. Never edited, never reordered, only ever added to. Each entry gets the next ticket number in line, and handing out that number has to be <span class="glossary" tabindex="0">atomic<span class="glossary-tip">Either the whole thing happens, or none of it does — never caught halfway.</span></span>, or two things writing at the same instant could grab the same number and quietly clobber each other.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/memory.py:274-289</span>
+        <pre><code><span class="tok-com"># Cursor allocation and the append must be atomic: concurrent writers</span>
+<span class="tok-com"># could otherwise read the same current cursor and emit duplicates.</span>
+<span class="tok-kw">with</span> self._append_lock:
+    cursor = self._next_cursor()
+    ...
+    record = {<span class="tok-str">"cursor"</span>: cursor, <span class="tok-str">"timestamp"</span>: ts, <span class="tok-str">"content"</span>: content}
+    <span class="tok-kw">if</span> session_key:
+        record[<span class="tok-str">"session_key"</span>] = session_key
+    <span class="tok-kw">with</span> <span class="tok-fn">open</span>(self.history_file, <span class="tok-str">"a"</span>, encoding=<span class="tok-str">"utf-8"</span>) <span class="tok-kw">as</span> f:
+        f.<span class="tok-fn">write</span>(json.<span class="tok-fn">dumps</span>(record, ensure_ascii=<span class="tok-kw">False</span>) + <span class="tok-str">"\n"</span>)
+    self._cursor_file.<span class="tok-fn">write_text</span>(<span class="tok-fn">str</span>(cursor), encoding=<span class="tok-str">"utf-8"</span>)</code></pre>
+      </div>
+      <p>The <code>with self._append_lock:</code> line is what makes it atomic — from the outside, "grab the next number and write the entry" looks like one instant, uninterruptible step, not two steps that something else could squeeze between.</p>
+    </div>
+
+    <div class="screen">
+      <p>Diaries occasionally need rewriting wholesale — say, trimming old entries once they've been dreamed about. That's the riskiest kind of file operation there is: if the process dies halfway through, you can be left with a half-written, corrupted file where your entire history used to be. Here's how nanobot avoids that.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/memory.py:446-455</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">_write_entries</span>(self, entries: list[dict[str, Any]]) -> <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Overwrite history.jsonl with the given entries (atomic write)."""</span>
+    tmp_path = self.history_file.<span class="tok-fn">with_suffix</span>(self.history_file.suffix + <span class="tok-str">".tmp"</span>)
+    <span class="tok-kw">try</span>:
+        <span class="tok-kw">with</span> <span class="tok-fn">open</span>(tmp_path, <span class="tok-str">"w"</span>, encoding=<span class="tok-str">"utf-8"</span>) <span class="tok-kw">as</span> f:
+            <span class="tok-kw">for</span> entry <span class="tok-kw">in</span> entries:
+                f.<span class="tok-fn">write</span>(json.<span class="tok-fn">dumps</span>(entry, ensure_ascii=<span class="tok-kw">False</span>) + <span class="tok-str">"\n"</span>)
+            f.<span class="tok-fn">flush</span>()
+            os.<span class="tok-fn">fsync</span>(f.fileno())
+        os.<span class="tok-fn">replace</span>(tmp_path, self.history_file)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Instead of erasing the real diary and writing the new version into the same spot, nanobot writes the entire new version to a scratch file first, makes sure it's fully saved to disk (<code>fsync</code>), and only then swaps the scratch file in to replace the real one in one atomic move (<code>os.replace</code>). There is never a moment where the real file is partially written — it's either the complete old version, or the complete new one.</p>
+        </div>
+      </div>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Notice the crash-safety trick here is dumb, boring, and 100% reliable — no AI involved. The judgment call (what's worth remembering) is the one part handed to an LLM. That split — rigid code for the parts that must never fail, a smarter model for the parts that need judgment — shows up everywhere in well-built AI systems.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now imagine nanobot's own engineers got lazy and skipped all that scratch-file ceremony. Here's a version of <code>_write_entries</code> that looks almost the same at a glance. One line in it would silently corrupt the entire diary if the process crashed at the wrong moment. Tap the line you think is the problem.</p>
+      <div class="quiz" data-quiz="spot">
+        <div class="code-block">
+          <span class="filename">a broken _write_entries — spot the crash-safety bug</span>
+          <pre><code><span class="spot-line" data-correct="false">def _write_entries(self, entries: list[dict[str, Any]]) -> None:</span>
+<span class="spot-line" data-correct="true" data-explain="This opens the REAL history file directly in write mode, which immediately truncates it. If the process dies partway through the loop below, the diary is left half-written forever — there's no scratch file and no os.replace to fall back on.">    with open(self.history_file, "w", encoding="utf-8") as f:</span>
+<span class="spot-line" data-correct="false">        for entry in entries:</span>
+<span class="spot-line" data-correct="false">            f.write(json.dumps(entry, ensure_ascii=False) + "\n")</span></code></pre>
+        </div>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So how does the Dream pass know what's new since it last ran? It remembers the ticket number of the last diary entry it already processed, and only feeds the entries after that into the next pass.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/memory.py:523-531</span>
+        <pre><code><span class="tok-kw">def</span> <span class="tok-fn">build_dream_prompt</span>(self, *, max_entries: int = <span class="tok-num">20</span>) -> tuple[str, int] | <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Build the Dream prompt with unprocessed history context."""</span>
+    last_cursor = self.<span class="tok-fn">get_last_dream_cursor</span>()
+    entries = self.<span class="tok-fn">read_unprocessed_history</span>(since_cursor=last_cursor)
+    <span class="tok-kw">if</span> <span class="tok-kw">not</span> entries:
+        <span class="tok-kw">return</span> <span class="tok-kw">None</span>
+    batch = entries[:max_entries]</code></pre>
+      </div>
+      <p>That's the difference between consolidating memory incrementally and "re-read your entire life story every night." Each Dream pass only has to think about what happened since the last one — a much smaller, cheaper, more focused job.</p>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">If the Dream pass ran yesterday and processed up through cursor 40, and 12 new diary entries have happened since, what does the next Dream pass read?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="Close, but nanobot doesn't need to — it already knows exactly where it left off.">All entries in history.jsonl, from cursor 1 onward, to be safe</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right — get_last_dream_cursor() remembers cursor 40, so read_unprocessed_history only fetches what came after it.">Only the entries after cursor 40 — the 12 new ones</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="There's no fixed count like this — it's driven by the cursor, not a flat number of entries per day.">A fixed batch of the most recent 20 entries, regardless of cursor</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Two more tricks round out this module, and both are really about not losing track of things — just outside the diary itself.</p>
+      <p>First: sending an intern out to run an errand while you keep working the front desk. That's a <span class="glossary" tabindex="0">background task<span class="glossary-tip">Work that keeps running without making you wait for it — you get on with other things and get notified when it's done.</span></span> — nanobot's word for a subagent.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/subagent.py:181-208</span>
+        <pre><code>bg_task = asyncio.<span class="tok-fn">create_task</span>(
+    self.<span class="tok-fn">_run_subagent</span>(
+        task_id, task, display_label, origin, status,
+        origin_message_id, temperature, workspace_scope,
+    )
+)
+self._running_tasks[task_id] = bg_task
+...
+logger.<span class="tok-fn">info</span>(<span class="tok-str">"Spawned subagent [{}]: {}"</span>, task_id, display_label)
+<span class="tok-kw">return</span> <span class="tok-str">f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."</span></code></pre>
+      </div>
+      <p>Spawning a subagent doesn't block the main conversation at all. When the background task finishes, it announces its result back onto the same <span class="glossary" tabindex="0">message bus<span class="glossary-tip">The shared handoff point where components drop off messages for other components to pick up, in order.</span></span> from earlier modules, tagged as a system message, so the main conversation naturally picks it back up.</p>
+      <div class="chat-window" data-autoplay data-speed="900">
+        <div class="chat-title">#agent-internals <button class="chat-replay">Replay</button></div>
+        <div class="chat-log">
+          <div class="chat-bubble system">AgentLoop → spawns a subagent</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Spawn subagent: research flight prices to Boston next week.</div>
+          <div class="chat-bubble right"><span class="who">Subagent</span>On it — working in the background, I'll text you when I'm done.</div>
+          <div class="chat-bubble system">a few minutes later...</div>
+          <div class="chat-bubble right"><span class="who">Subagent</span>Done — cheapest is Tuesday, $210. Announcing result to the message bus.</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Got it, folding that into my reply to the user.</div>
+        </div>
+      </div>
+      <p>Second: a sticky note pinned to the top of your desk, so a multi-day task doesn't get forgotten even if your desk gets cleared in between. That's a sustained goal.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/tools/long_task.py:150-179</span>
+        <pre><code><span class="tok-kw">async def</span> <span class="tok-fn">execute</span>(self, goal: str, ui_summary: str | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>, **kwargs: Any) -> str:
+    sess = self.<span class="tok-fn">_session</span>()
+    ...
+    blob = {
+        <span class="tok-str">"status"</span>: <span class="tok-str">"active"</span>,
+        <span class="tok-str">"objective"</span>: goal.<span class="tok-fn">strip</span>(),
+        <span class="tok-str">"ui_summary"</span>: summary,
+        <span class="tok-str">"started_at"</span>: _iso_now(),
+    }
+    sess.metadata[GOAL_STATE_KEY] = blob
+    ...
+    <span class="tok-kw">return</span> (
+        <span class="tok-str">"Goal recorded. Keep working toward the objective using ordinary tools. "</span>
+        <span class="tok-str">"When fully done (verified against what was asked), call complete_goal with a "</span>
+        <span class="tok-str">f"short recap.{extra}"</span>
+    )</code></pre>
+      </div>
+      <p>This doesn't kick off some special separate process — it just writes "here's the standing objective" onto the conversation's own metadata. Crucially, that objective gets re-mentioned to the model on every single turn, specifically so that summarizing or trimming old history can never make the model quietly forget what it was supposed to be working on.</p>
+      <p>One thread is still loose: everything so far has been chat messages in, chat messages out. Next: the web app you might actually be looking at right now, how it's wired to all of this, and what to check first when something misbehaves.</p>
+    </div>
+  </div>
+</section>
+
+<section class="module module-b" id="module-6">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 6</p>
+    <h2 class="module-title">The big picture: the cockpit and the flight recorder</h2>
+    <p class="lede">Module 5 was about what nanobot remembers. This last module is about the app you're probably reading this on, and what to do when something goes sideways.</p>
+
+    <div class="screen">
+      <p>Picture a cockpit. Every dial, switch, and screen the pilot touches is just a different way of reaching the same aircraft underneath — and behind all of it sits a flight recorder, quietly timestamping everything that happens, so if something ever goes wrong, nobody has to guess what happened. That's this module: the web app you might be looking at right now is just another dial on the same aircraft as Telegram and Slack, and nanobot keeps its own flight recorder for exactly the moments when you need to know what went wrong.</p>
+      <p>This is the payoff for the whole course. Once you can see the cockpit's layout, "I understand how this works" turns into "I know exactly what to ask an AI coding tool to check first" when a reply is slow or wrong — and where to add a new feature so it doesn't fight the grain of the design.</p>
+    </div>
+
+    <div class="screen">
+      <p>Here's the reveal: the WebUI — the browser tab serving this very page — is not a special case wired directly into nanobot's core. It's just another implementation of the same <span class="glossary" tabindex="0">WebSocket<span class="glossary-tip">A phone line that stays open between your browser and the server, so either side can talk at any moment, instead of the browser having to call back and ask "anything new?" over and over.</span></span> channel contract from Module 2 — the same <code>start</code> / <code>stop</code> / <code>send</code> shape every channel follows, whether it's Telegram, Slack, or your own browser tab. It just happens to also serve up the compiled WebUI's HTML and JS files.</p>
+      <p>No shortcuts, no side door into the agent core. The cast member you're talking to right now walked in through the same stage door as everyone else.</p>
+    </div>
+
+    <div class="screen">
+      <p>So how does your browser actually talk to nanobot over that open phone line? In small, labeled packages. Every message that crosses the WebSocket — a new chat message, a streamed reply chunk, a status update — is a JSON object with a <code>type</code> field saying exactly what kind of thing it is.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/channels/websocket.py:199-218</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">_parse_envelope</span>(raw: str) -> dict[str, Any] | <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Return a typed envelope dict if the frame is a new-style JSON envelope, else None."""</span>
+    text = raw.strip()
+    <span class="tok-kw">if not</span> text.startswith(<span class="tok-str">"{"</span>):
+        <span class="tok-kw">return None</span>
+    <span class="tok-kw">try</span>:
+        data = json.loads(text)
+    <span class="tok-kw">except</span> json.JSONDecodeError:
+        <span class="tok-kw">return None</span>
+    <span class="tok-kw">if not</span> isinstance(data, dict):
+        <span class="tok-kw">return None</span>
+    t = data.get(<span class="tok-str">"type"</span>)
+    <span class="tok-kw">if not</span> isinstance(t, str):
+        <span class="tok-kw">return None</span>
+    <span class="tok-kw">return</span> data</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Every message flowing over the WebSocket connection between your browser tab and nanobot is a small labeled package — a JSON object with a <code>type</code> field. The browser and the server both speak this same small, explicit vocabulary. Nothing is inferred or guessed from raw text; if it doesn't match the shape, it's simply not treated as a valid envelope.</p>
+        </div>
+      </div>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>This is why well-built systems use explicit, typed protocols instead of parsing free-form text: a labeled envelope can be validated and rejected safely if it's malformed, while "guess what the sender meant" code invites silent bugs and security holes. Explicit beats implicit whenever two systems need to trust each other.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now, the flight recorder. Module 3 walked through the turn state machine — RESTORE, COMPACT, BUILD, RUN, and so on — as an assembly line every message travels down. Nanobot doesn't just run that assembly line; it times and logs every single station as it happens.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:101-107</span>
+        <pre><code><span class="tok-kw">@dataclass</span>
+<span class="tok-kw">class</span> <span class="tok-fn">StateTraceEntry</span>:
+    state: TurnState
+    started_at: float
+    duration_ms: float
+    event: str
+    error: str | <span class="tok-kw">None</span> = <span class="tok-kw">None</span></code></pre>
+      </div>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/loop.py:1379-1394</span>
+          <pre><code>duration = (time.perf_counter() - t0) * <span class="tok-num">1000</span>
+ctx.trace.append(
+    StateTraceEntry(
+        state=ctx.state,
+        started_at=t0,
+        duration_ms=duration,
+        event=event,
+    )
+)
+logger.debug(
+    <span class="tok-str">"[turn {}] State {} took {:.1f}ms -> event {}"</span>,
+    ctx.turn_id, ctx.state.name, duration, event,
+)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Every station from the assembly line gets its own timestamped log entry: which state it was, how long it took in milliseconds, and what happened next. If a reply is slow or wrong, this trace tells you — or an AI debugging tool you point at it — exactly which station to inspect first, instead of re-reading an entire conversation from scratch guessing where it went wrong.</p>
+        </div>
+      </div>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">Nanobot's reply to your Telegram message is oddly slow today. Which station's timing entry from the flight recorder would you check first?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="RESTORE just reloads saved session history — normally fast bookkeeping, not where slowness usually hides.">RESTORE</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="BUILD assembles the context to send to the model — quick to construct, rarely the bottleneck.">BUILD</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right — RUN is where the actual LLM call and any tool execution happen. That's the station doing real work over the network, so it's the first suspect for slowness.">RUN</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So the flight recorder tells you where a bug lives. But where should a new feature live? Nanobot's own engineering guidelines already answer that, and it's the same lesson this whole course has been building toward — through the theater cast of Module 2, the assembly line of Module 3, and the border crossing of Module 4:</p>
+      <blockquote>
+        "New capabilities should be added via <code>channels/</code>, <code>tools/</code>, skills, or MCP servers... If a feature can live in a channel adapter, a tool, or an external MCP server, it should not be inlined into the agent loop."
+      </blockquote>
+      <p>In plain English: don't touch the engine room. Find the edge that already matches the shape of what you're building, and extend there.</p>
+      <div class="callout">
+        <p class="callout-label">Aha! — the course's closing thought</p>
+        <p>Everything in this course, start to finish, was one recurring shape: a small, stable core — the message bus, the turn state machine — surrounded by clearly-bordered, swappable pieces at the edges — channels, providers, tools. That's not an accident of this one project. It's a design instinct worth recognizing in <em>any</em> codebase you work with: find the stable core first, then look for the edges you're actually allowed to touch. That instinct is what separates a change that fits a codebase from one that fights it.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Six modules, one shape, seen from six angles:</p>
+      <ul>
+        <li>Module 1 followed one message's whole journey through nanobot's core.</li>
+        <li>Module 2 met the channels — interchangeable cast members, all built to the same contract.</li>
+        <li>Module 3 walked the turn state machine — an assembly line every message runs down, station by station.</li>
+        <li>Module 4 crossed the border into tools — the one supervised way the agent touches your files, your shell, the web.</li>
+        <li>Module 5 looked at memory and Dream consolidation — what nanobot remembers, and how it forgets on purpose.</li>
+        <li>Module 6 pulled back to the cockpit itself — one stable core, swappable edges, and a flight recorder for when something breaks.</li>
+      </ul>
+      <p>You now have real vocabulary for this codebase: session, turn state, channel contract, tool boundary, trace entry. That's not trivia — it's what lets you tell an AI coding tool exactly what to check ("look at the RUN entry in the turn trace"), guess correctly where a bug is likely hiding before you've read a line of code, and ask for a new feature already scoped the way this codebase actually wants it scoped — as a channel, a tool, or a skill, not a detour through the core. That's the whole point of knowing the shape of a system: you stop guessing, and start steering.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+<footer class="course-footer">
+  <p>Built as a guided tour of the <code>nanobot</code> source code — every code snippet above is real, taken straight from the repo. Scroll back up any time; the dots on the right always know where you are.</p>
+</footer>
+<script src="main.js"></script>
+</body>
+</html>

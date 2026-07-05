@@ -1,0 +1,119 @@
+<section class="module module-b" id="module-6">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 6</p>
+    <h2 class="module-title">The big picture: the cockpit and the flight recorder</h2>
+    <p class="lede">Module 5 was about what nanobot remembers. This last module is about the app you're probably reading this on, and what to do when something goes sideways.</p>
+
+    <div class="screen">
+      <p>Picture a cockpit. Every dial, switch, and screen the pilot touches is just a different way of reaching the same aircraft underneath — and behind all of it sits a flight recorder, quietly timestamping everything that happens, so if something ever goes wrong, nobody has to guess what happened. That's this module: the web app you might be looking at right now is just another dial on the same aircraft as Telegram and Slack, and nanobot keeps its own flight recorder for exactly the moments when you need to know what went wrong.</p>
+      <p>This is the payoff for the whole course. Once you can see the cockpit's layout, "I understand how this works" turns into "I know exactly what to ask an AI coding tool to check first" when a reply is slow or wrong — and where to add a new feature so it doesn't fight the grain of the design.</p>
+    </div>
+
+    <div class="screen">
+      <p>Here's the reveal: the WebUI — the browser tab serving this very page — is not a special case wired directly into nanobot's core. It's just another implementation of the same <span class="glossary" tabindex="0">WebSocket<span class="glossary-tip">A phone line that stays open between your browser and the server, so either side can talk at any moment, instead of the browser having to call back and ask "anything new?" over and over.</span></span> channel contract from Module 2 — the same <code>start</code> / <code>stop</code> / <code>send</code> shape every channel follows, whether it's Telegram, Slack, or your own browser tab. It just happens to also serve up the compiled WebUI's HTML and JS files.</p>
+      <p>No shortcuts, no side door into the agent core. The cast member you're talking to right now walked in through the same stage door as everyone else.</p>
+    </div>
+
+    <div class="screen">
+      <p>So how does your browser actually talk to nanobot over that open phone line? In small, labeled packages. Every message that crosses the WebSocket — a new chat message, a streamed reply chunk, a status update — is a JSON object with a <code>type</code> field saying exactly what kind of thing it is.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/channels/websocket.py:199-218</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">_parse_envelope</span>(raw: str) -> dict[str, Any] | <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Return a typed envelope dict if the frame is a new-style JSON envelope, else None."""</span>
+    text = raw.strip()
+    <span class="tok-kw">if not</span> text.startswith(<span class="tok-str">"{"</span>):
+        <span class="tok-kw">return None</span>
+    <span class="tok-kw">try</span>:
+        data = json.loads(text)
+    <span class="tok-kw">except</span> json.JSONDecodeError:
+        <span class="tok-kw">return None</span>
+    <span class="tok-kw">if not</span> isinstance(data, dict):
+        <span class="tok-kw">return None</span>
+    t = data.get(<span class="tok-str">"type"</span>)
+    <span class="tok-kw">if not</span> isinstance(t, str):
+        <span class="tok-kw">return None</span>
+    <span class="tok-kw">return</span> data</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Every message flowing over the WebSocket connection between your browser tab and nanobot is a small labeled package — a JSON object with a <code>type</code> field. The browser and the server both speak this same small, explicit vocabulary. Nothing is inferred or guessed from raw text; if it doesn't match the shape, it's simply not treated as a valid envelope.</p>
+        </div>
+      </div>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>This is why well-built systems use explicit, typed protocols instead of parsing free-form text: a labeled envelope can be validated and rejected safely if it's malformed, while "guess what the sender meant" code invites silent bugs and security holes. Explicit beats implicit whenever two systems need to trust each other.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now, the flight recorder. Module 3 walked through the turn state machine — RESTORE, COMPACT, BUILD, RUN, and so on — as an assembly line every message travels down. Nanobot doesn't just run that assembly line; it times and logs every single station as it happens.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:101-107</span>
+        <pre><code><span class="tok-kw">@dataclass</span>
+<span class="tok-kw">class</span> <span class="tok-fn">StateTraceEntry</span>:
+    state: TurnState
+    started_at: float
+    duration_ms: float
+    event: str
+    error: str | <span class="tok-kw">None</span> = <span class="tok-kw">None</span></code></pre>
+      </div>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/loop.py:1379-1394</span>
+          <pre><code>duration = (time.perf_counter() - t0) * <span class="tok-num">1000</span>
+ctx.trace.append(
+    StateTraceEntry(
+        state=ctx.state,
+        started_at=t0,
+        duration_ms=duration,
+        event=event,
+    )
+)
+logger.debug(
+    <span class="tok-str">"[turn {}] State {} took {:.1f}ms -> event {}"</span>,
+    ctx.turn_id, ctx.state.name, duration, event,
+)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Every station from the assembly line gets its own timestamped log entry: which state it was, how long it took in milliseconds, and what happened next. If a reply is slow or wrong, this trace tells you — or an AI debugging tool you point at it — exactly which station to inspect first, instead of re-reading an entire conversation from scratch guessing where it went wrong.</p>
+        </div>
+      </div>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">Nanobot's reply to your Telegram message is oddly slow today. Which station's timing entry from the flight recorder would you check first?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="RESTORE just reloads saved session history — normally fast bookkeeping, not where slowness usually hides.">RESTORE</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="BUILD assembles the context to send to the model — quick to construct, rarely the bottleneck.">BUILD</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right — RUN is where the actual LLM call and any tool execution happen. That's the station doing real work over the network, so it's the first suspect for slowness.">RUN</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So the flight recorder tells you where a bug lives. But where should a new feature live? Nanobot's own engineering guidelines already answer that, and it's the same lesson this whole course has been building toward — through the theater cast of Module 2, the assembly line of Module 3, and the border crossing of Module 4:</p>
+      <blockquote>
+        "New capabilities should be added via <code>channels/</code>, <code>tools/</code>, skills, or MCP servers... If a feature can live in a channel adapter, a tool, or an external MCP server, it should not be inlined into the agent loop."
+      </blockquote>
+      <p>In plain English: don't touch the engine room. Find the edge that already matches the shape of what you're building, and extend there.</p>
+      <div class="callout">
+        <p class="callout-label">Aha! — the course's closing thought</p>
+        <p>Everything in this course, start to finish, was one recurring shape: a small, stable core — the message bus, the turn state machine — surrounded by clearly-bordered, swappable pieces at the edges — channels, providers, tools. That's not an accident of this one project. It's a design instinct worth recognizing in <em>any</em> codebase you work with: find the stable core first, then look for the edges you're actually allowed to touch. That instinct is what separates a change that fits a codebase from one that fights it.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Six modules, one shape, seen from six angles:</p>
+      <ul>
+        <li>Module 1 followed one message's whole journey through nanobot's core.</li>
+        <li>Module 2 met the channels — interchangeable cast members, all built to the same contract.</li>
+        <li>Module 3 walked the turn state machine — an assembly line every message runs down, station by station.</li>
+        <li>Module 4 crossed the border into tools — the one supervised way the agent touches your files, your shell, the web.</li>
+        <li>Module 5 looked at memory and Dream consolidation — what nanobot remembers, and how it forgets on purpose.</li>
+        <li>Module 6 pulled back to the cockpit itself — one stable core, swappable edges, and a flight recorder for when something breaks.</li>
+      </ul>
+      <p>You now have real vocabulary for this codebase: session, turn state, channel contract, tool boundary, trace entry. That's not trivia — it's what lets you tell an AI coding tool exactly what to check ("look at the RUN entry in the turn trace"), guess correctly where a bug is likely hiding before you've read a line of code, and ask for a new feature already scoped the way this codebase actually wants it scoped — as a channel, a tool, or a skill, not a detour through the core. That's the whole point of knowing the shape of a system: you stop guessing, and start steering.</p>
+    </div>
+  </div>
+</section>

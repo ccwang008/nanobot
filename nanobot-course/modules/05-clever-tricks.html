@@ -1,0 +1,149 @@
+<section class="module module-a" id="module-5">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 5</p>
+    <h2 class="module-title">The clever tricks: sleeping on it</h2>
+    <p class="lede">Module 4 was about nanobot's border with the outside world. This module is about what it does with everything it learns <em>after</em> it comes back inside.</p>
+
+    <div class="screen">
+      <p>You don't file away a day's experience as it happens. Your brain replays it later — while you sleep — turning a messy stream of moments into a few things actually worth keeping. nanobot does the same thing, on a schedule, and it's not a metaphor stretch: the codebase's own name for this mechanism is literally <strong>"Dream."</strong></p>
+      <p>It keeps a running, append-only diary of everything that happens (<code>history.jsonl</code>), and periodically runs a separate Dream pass — a dedicated <span class="glossary" tabindex="0">LLM call<span class="glossary-tip">A single request sent to an AI model to get one response back — here, its only job is summarizing, not chatting.</span></span> whose only job is to read the unprocessed diary entries and boil them down into durable notes (<code>MEMORY.md</code>, <code>SOUL.md</code>, <code>USER.md</code>).</p>
+      <p><strong>Why should you care?</strong> Understanding that memory consolidation happens separately from live conversation explains why nanobot can stay useful over weeks without its context window overflowing — and it's the same reason you can ask it to "keep working on this for a while" and trust it won't lose the thread.</p>
+    </div>
+
+    <div class="screen">
+      <p>First, the diary itself. Every time something happens — a message, a tool call, a result — nanobot appends one more line to <code>history.jsonl</code>. Never edited, never reordered, only ever added to. Each entry gets the next ticket number in line, and handing out that number has to be <span class="glossary" tabindex="0">atomic<span class="glossary-tip">Either the whole thing happens, or none of it does — never caught halfway.</span></span>, or two things writing at the same instant could grab the same number and quietly clobber each other.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/memory.py:274-289</span>
+        <pre><code><span class="tok-com"># Cursor allocation and the append must be atomic: concurrent writers</span>
+<span class="tok-com"># could otherwise read the same current cursor and emit duplicates.</span>
+<span class="tok-kw">with</span> self._append_lock:
+    cursor = self._next_cursor()
+    ...
+    record = {<span class="tok-str">"cursor"</span>: cursor, <span class="tok-str">"timestamp"</span>: ts, <span class="tok-str">"content"</span>: content}
+    <span class="tok-kw">if</span> session_key:
+        record[<span class="tok-str">"session_key"</span>] = session_key
+    <span class="tok-kw">with</span> <span class="tok-fn">open</span>(self.history_file, <span class="tok-str">"a"</span>, encoding=<span class="tok-str">"utf-8"</span>) <span class="tok-kw">as</span> f:
+        f.<span class="tok-fn">write</span>(json.<span class="tok-fn">dumps</span>(record, ensure_ascii=<span class="tok-kw">False</span>) + <span class="tok-str">"\n"</span>)
+    self._cursor_file.<span class="tok-fn">write_text</span>(<span class="tok-fn">str</span>(cursor), encoding=<span class="tok-str">"utf-8"</span>)</code></pre>
+      </div>
+      <p>The <code>with self._append_lock:</code> line is what makes it atomic — from the outside, "grab the next number and write the entry" looks like one instant, uninterruptible step, not two steps that something else could squeeze between.</p>
+    </div>
+
+    <div class="screen">
+      <p>Diaries occasionally need rewriting wholesale — say, trimming old entries once they've been dreamed about. That's the riskiest kind of file operation there is: if the process dies halfway through, you can be left with a half-written, corrupted file where your entire history used to be. Here's how nanobot avoids that.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/memory.py:446-455</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">_write_entries</span>(self, entries: list[dict[str, Any]]) -> <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Overwrite history.jsonl with the given entries (atomic write)."""</span>
+    tmp_path = self.history_file.<span class="tok-fn">with_suffix</span>(self.history_file.suffix + <span class="tok-str">".tmp"</span>)
+    <span class="tok-kw">try</span>:
+        <span class="tok-kw">with</span> <span class="tok-fn">open</span>(tmp_path, <span class="tok-str">"w"</span>, encoding=<span class="tok-str">"utf-8"</span>) <span class="tok-kw">as</span> f:
+            <span class="tok-kw">for</span> entry <span class="tok-kw">in</span> entries:
+                f.<span class="tok-fn">write</span>(json.<span class="tok-fn">dumps</span>(entry, ensure_ascii=<span class="tok-kw">False</span>) + <span class="tok-str">"\n"</span>)
+            f.<span class="tok-fn">flush</span>()
+            os.<span class="tok-fn">fsync</span>(f.fileno())
+        os.<span class="tok-fn">replace</span>(tmp_path, self.history_file)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Instead of erasing the real diary and writing the new version into the same spot, nanobot writes the entire new version to a scratch file first, makes sure it's fully saved to disk (<code>fsync</code>), and only then swaps the scratch file in to replace the real one in one atomic move (<code>os.replace</code>). There is never a moment where the real file is partially written — it's either the complete old version, or the complete new one.</p>
+        </div>
+      </div>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Notice the crash-safety trick here is dumb, boring, and 100% reliable — no AI involved. The judgment call (what's worth remembering) is the one part handed to an LLM. That split — rigid code for the parts that must never fail, a smarter model for the parts that need judgment — shows up everywhere in well-built AI systems.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now imagine nanobot's own engineers got lazy and skipped all that scratch-file ceremony. Here's a version of <code>_write_entries</code> that looks almost the same at a glance. One line in it would silently corrupt the entire diary if the process crashed at the wrong moment. Tap the line you think is the problem.</p>
+      <div class="quiz" data-quiz="spot">
+        <div class="code-block">
+          <span class="filename">a broken _write_entries — spot the crash-safety bug</span>
+          <pre><code><span class="spot-line" data-correct="false">def _write_entries(self, entries: list[dict[str, Any]]) -> None:</span>
+<span class="spot-line" data-correct="true" data-explain="This opens the REAL history file directly in write mode, which immediately truncates it. If the process dies partway through the loop below, the diary is left half-written forever — there's no scratch file and no os.replace to fall back on.">    with open(self.history_file, "w", encoding="utf-8") as f:</span>
+<span class="spot-line" data-correct="false">        for entry in entries:</span>
+<span class="spot-line" data-correct="false">            f.write(json.dumps(entry, ensure_ascii=False) + "\n")</span></code></pre>
+        </div>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So how does the Dream pass know what's new since it last ran? It remembers the ticket number of the last diary entry it already processed, and only feeds the entries after that into the next pass.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/memory.py:523-531</span>
+        <pre><code><span class="tok-kw">def</span> <span class="tok-fn">build_dream_prompt</span>(self, *, max_entries: int = <span class="tok-num">20</span>) -> tuple[str, int] | <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Build the Dream prompt with unprocessed history context."""</span>
+    last_cursor = self.<span class="tok-fn">get_last_dream_cursor</span>()
+    entries = self.<span class="tok-fn">read_unprocessed_history</span>(since_cursor=last_cursor)
+    <span class="tok-kw">if</span> <span class="tok-kw">not</span> entries:
+        <span class="tok-kw">return</span> <span class="tok-kw">None</span>
+    batch = entries[:max_entries]</code></pre>
+      </div>
+      <p>That's the difference between consolidating memory incrementally and "re-read your entire life story every night." Each Dream pass only has to think about what happened since the last one — a much smaller, cheaper, more focused job.</p>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">If the Dream pass ran yesterday and processed up through cursor 40, and 12 new diary entries have happened since, what does the next Dream pass read?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="Close, but nanobot doesn't need to — it already knows exactly where it left off.">All entries in history.jsonl, from cursor 1 onward, to be safe</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right — get_last_dream_cursor() remembers cursor 40, so read_unprocessed_history only fetches what came after it.">Only the entries after cursor 40 — the 12 new ones</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="There's no fixed count like this — it's driven by the cursor, not a flat number of entries per day.">A fixed batch of the most recent 20 entries, regardless of cursor</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Two more tricks round out this module, and both are really about not losing track of things — just outside the diary itself.</p>
+      <p>First: sending an intern out to run an errand while you keep working the front desk. That's a <span class="glossary" tabindex="0">background task<span class="glossary-tip">Work that keeps running without making you wait for it — you get on with other things and get notified when it's done.</span></span> — nanobot's word for a subagent.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/subagent.py:181-208</span>
+        <pre><code>bg_task = asyncio.<span class="tok-fn">create_task</span>(
+    self.<span class="tok-fn">_run_subagent</span>(
+        task_id, task, display_label, origin, status,
+        origin_message_id, temperature, workspace_scope,
+    )
+)
+self._running_tasks[task_id] = bg_task
+...
+logger.<span class="tok-fn">info</span>(<span class="tok-str">"Spawned subagent [{}]: {}"</span>, task_id, display_label)
+<span class="tok-kw">return</span> <span class="tok-str">f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."</span></code></pre>
+      </div>
+      <p>Spawning a subagent doesn't block the main conversation at all. When the background task finishes, it announces its result back onto the same <span class="glossary" tabindex="0">message bus<span class="glossary-tip">The shared handoff point where components drop off messages for other components to pick up, in order.</span></span> from earlier modules, tagged as a system message, so the main conversation naturally picks it back up.</p>
+      <div class="chat-window" data-autoplay data-speed="900">
+        <div class="chat-title">#agent-internals <button class="chat-replay">Replay</button></div>
+        <div class="chat-log">
+          <div class="chat-bubble system">AgentLoop → spawns a subagent</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Spawn subagent: research flight prices to Boston next week.</div>
+          <div class="chat-bubble right"><span class="who">Subagent</span>On it — working in the background, I'll text you when I'm done.</div>
+          <div class="chat-bubble system">a few minutes later...</div>
+          <div class="chat-bubble right"><span class="who">Subagent</span>Done — cheapest is Tuesday, $210. Announcing result to the message bus.</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Got it, folding that into my reply to the user.</div>
+        </div>
+      </div>
+      <p>Second: a sticky note pinned to the top of your desk, so a multi-day task doesn't get forgotten even if your desk gets cleared in between. That's a sustained goal.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/tools/long_task.py:150-179</span>
+        <pre><code><span class="tok-kw">async def</span> <span class="tok-fn">execute</span>(self, goal: str, ui_summary: str | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>, **kwargs: Any) -> str:
+    sess = self.<span class="tok-fn">_session</span>()
+    ...
+    blob = {
+        <span class="tok-str">"status"</span>: <span class="tok-str">"active"</span>,
+        <span class="tok-str">"objective"</span>: goal.<span class="tok-fn">strip</span>(),
+        <span class="tok-str">"ui_summary"</span>: summary,
+        <span class="tok-str">"started_at"</span>: _iso_now(),
+    }
+    sess.metadata[GOAL_STATE_KEY] = blob
+    ...
+    <span class="tok-kw">return</span> (
+        <span class="tok-str">"Goal recorded. Keep working toward the objective using ordinary tools. "</span>
+        <span class="tok-str">"When fully done (verified against what was asked), call complete_goal with a "</span>
+        <span class="tok-str">f"short recap.{extra}"</span>
+    )</code></pre>
+      </div>
+      <p>This doesn't kick off some special separate process — it just writes "here's the standing objective" onto the conversation's own metadata. Crucially, that objective gets re-mentioned to the model on every single turn, specifically so that summarizing or trimming old history can never make the model quietly forget what it was supposed to be working on.</p>
+      <p>One thread is still loose: everything so far has been chat messages in, chat messages out. Next: the web app you might actually be looking at right now, how it's wired to all of this, and what to check first when something misbehaves.</p>
+    </div>
+  </div>
+</section>

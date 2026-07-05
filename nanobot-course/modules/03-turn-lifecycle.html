@@ -1,0 +1,156 @@
+<section class="module module-a" id="module-3">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 3</p>
+    <h2 class="module-title">Anatomy of a turn</h2>
+    <p class="lede">Module 2 introduced the director and lead actor. Now watch them run one full scene, station by station — because when a conversation feels "stuck," or a reply mysteriously "forgets" something, knowing the fixed sequence of stations lets you point an AI tool at the <em>one</em> station that's misbehaving instead of "just look at the whole agent."</p>
+
+    <div class="screen">
+      <p>Think of one <strong>turn</strong> — one message in, one reply out — as a factory assembly line, or a relay race with fixed stations. The work doesn't happen in one big step. It moves forward, station by station, and each station does exactly one job before handing the (increasingly-finished) work to the next runner. Nobody skips a station out of order.</p>
+      <p>nanobot names every station in the line, right in one place — nothing is hidden elsewhere in the code:</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:90-98</span>
+        <pre><code><span class="tok-kw">class</span> <span class="tok-fn">TurnState</span>(Enum):
+    RESTORE = <span class="tok-fn">auto</span>()
+    COMPACT = <span class="tok-fn">auto</span>()
+    COMMAND = <span class="tok-fn">auto</span>()
+    BUILD = <span class="tok-fn">auto</span>()
+    RUN = <span class="tok-fn">auto</span>()
+    SAVE = <span class="tok-fn">auto</span>()
+    RESPOND = <span class="tok-fn">auto</span>()
+    DONE = <span class="tok-fn">auto</span>()</code></pre>
+      </div>
+      <p>That's the whole route, top to bottom: RESTORE → COMPACT → COMMAND → BUILD → RUN → SAVE → RESPOND → DONE.</p>
+    </div>
+
+    <div class="screen">
+      <p>A list of station names isn't enough on its own — something has to decide what comes <em>next</em>. nanobot keeps that decision in one small rulebook, a lookup table of "if you're here, and this happened, go there":</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:183-192</span>
+        <pre><code>_TRANSITIONS: dict[tuple[TurnState, str], TurnState] = {
+    (TurnState.RESTORE, <span class="tok-str">"ok"</span>): TurnState.COMPACT,
+    (TurnState.COMPACT, <span class="tok-str">"ok"</span>): TurnState.COMMAND,
+    (TurnState.COMMAND, <span class="tok-str">"dispatch"</span>): TurnState.BUILD,
+    (TurnState.COMMAND, <span class="tok-str">"shortcut"</span>): TurnState.DONE,
+    (TurnState.BUILD, <span class="tok-str">"ok"</span>): TurnState.RUN,
+    (TurnState.RUN, <span class="tok-str">"ok"</span>): TurnState.SAVE,
+    (TurnState.SAVE, <span class="tok-str">"ok"</span>): TurnState.RESPOND,
+    (TurnState.RESPOND, <span class="tok-str">"ok"</span>): TurnState.DONE,
+}</code></pre>
+      </div>
+      <p>Each station finishes and reports back one word — almost always <code>"ok"</code>, meaning "done, keep going." This setup is called a <span class="glossary" tabindex="0">state machine<span class="glossary-tip">A system that is always in exactly one named state (station), with explicit rules for what state comes next. Instead of a tangle of if/else scattered everywhere, you get one small table you can read start to finish.</span></span>.</p>
+      <p>Look closely at COMMAND: it has <em>two</em> possible exits. Type a slash command like <code>/new</code>, and it takes the <code>"shortcut"</code> lane straight to DONE — skipping BUILD, RUN, and SAVE entirely. There's no need to ask the LLM anything for a command nanobot already knows how to handle itself.</p>
+    </div>
+
+    <div class="screen">
+      <p>What does each station actually do? Here's the whole relay, translated:</p>
+      <div class="pattern-grid">
+        <div class="pattern-card"><h4>RESTORE</h4><p>Recover any in-progress work left over from before a crash or interruption, and pull out any attached files or images.</p></div>
+        <div class="pattern-card"><h4>COMPACT</h4><p>Check whether this conversation's history has grown too long and needs summarizing first, before doing anything else.</p></div>
+        <div class="pattern-card"><h4>COMMAND</h4><p>Check whether the message is a slash command like <code>/new</code> or <code>/stop</code>. If so, handle it directly and take the shortcut exit.</p></div>
+        <div class="pattern-card"><h4>BUILD</h4><p>Assemble everything the LLM needs to see: the conversation history, the new message, and the current list of tools it's allowed to use.</p></div>
+        <div class="pattern-card"><h4>RUN</h4><p>The actual back-and-forth with the LLM and its tools — this is where Module 2's lead actor, AgentRunner, takes over.</p></div>
+        <div class="pattern-card"><h4>SAVE</h4><p>Write the finished turn to the conversation's permanent history, so it's there next time.</p></div>
+        <div class="pattern-card"><h4>RESPOND</h4><p>Package the final reply and send it back down the pipe to the channel — Telegram, Slack, wherever it came from.</p></div>
+        <div class="pattern-card"><h4>DONE</h4><p>The finish line. This turn is fully closed out; nanobot waits for whatever message arrives next.</p></div>
+      </div>
+      <p class="module-caption">(Functions: <code>_state_restore</code>, <code>_state_compact</code>, <code>_state_command</code>, <code>_state_build</code>, <code>_state_run</code>, <code>_state_save</code>, <code>_state_respond</code> — <span class="filename">loop.py:1446-1633</span>)</p>
+    </div>
+
+    <div class="screen">
+      <p>The line runs one station at a time for a given conversation — but different conversations don't wait on each other at all. Each one gets its own turnstile:</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/loop.py:1033-1042</span>
+          <pre><code>lock = self._session_locks.setdefault(session_key, asyncio.Lock())
+gate = self._concurrency_gate or nullcontext()
+
+pending: asyncio.Queue | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>
+<span class="tok-kw">try</span>:
+    <span class="tok-kw">async with</span> lock, gate:
+        <span class="tok-com"># Only the task that owns the session lock may publish the</span>
+        <span class="tok-com"># active mid-turn injection queue for this session.</span>
+        pending = asyncio.Queue(maxsize=<span class="tok-num">20</span>)
+        self._pending_queues[session_key] = pending</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Every conversation gets its own <span class="glossary" tabindex="0">lock<span class="glossary-tip">A rule that only one thing at a time can hold — like a single key to a single door. Whoever has the key goes through; everyone else waits their turn for that same door.</span></span> — a single-occupancy turnstile. Your conversation with nanobot can't have two turns processing at once and tripping over each other, but someone else's DM, or a different chat entirely, has its own separate turnstile and runs fully in parallel.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So what happens if <em>you</em> send a follow-up message while nanobot is still mid-reply to your first one? It doesn't start a second, competing turn:</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:986-1002</span>
+        <pre><code><span class="tok-kw">if</span> effective_key <span class="tok-kw">in</span> self._pending_queues:
+    <span class="tok-kw">if</span> self.commands.is_dispatchable_command(raw):
+        <span class="tok-kw">await</span> self._dispatch_command_inline(...)
+        <span class="tok-kw">continue</span>
+    pending_msg = msg
+    ...
+    <span class="tok-kw">try</span>:
+        self._pending_queues[effective_key].put_nowait(pending_msg)
+    ...
+    <span class="tok-kw">else</span>:
+        logger.info(
+            <span class="tok-str">"Routed follow-up message to pending queue for session {}"</span>,
+            effective_key,
+        )
+        <span class="tok-kw">continue</span></code></pre>
+      </div>
+      <p>Your second message gets slipped into a small waiting line for <em>that same conversation's</em> current turn to notice and fold in — rather than nanobot trying to answer both at once and potentially replying twice, out of order.</p>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">You send nanobot two messages in a row before it's replied to the first. What happens?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="Close — but nanobot doesn't drop it. It's noticed and folded in later.">The second message is silently ignored</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right — it's slipped into a small pending queue for that conversation's current turn to pick up, instead of starting a competing turn.">It waits in a small queue for that same conversation's current turn to notice</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="This is exactly what nanobot avoids — two turns racing on one conversation could reply twice, out of order.">nanobot starts a second, parallel turn to answer both messages at once</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Inside the RUN station specifically, there's another shortcut worth knowing: tool calls that don't depend on each other don't wait in line either.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/agent/runner.py:1138-1145</span>
+          <pre><code><span class="tok-kw">if</span> spec.concurrent_tools <span class="tok-kw">and</span> <span class="tok-fn">len</span>(batch) > <span class="tok-num">1</span>:
+    batch_results = <span class="tok-kw">await</span> asyncio.gather(*(
+        self._run_tool(
+            spec, tool_call, external_lookup_counts, workspace_violation_counts,
+        )
+        <span class="tok-kw">for</span> tool_call <span class="tok-kw">in</span> batch
+    ))
+    tool_results.extend(batch_results)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>If the LLM asks for three things at once — say, check the weather, read a file, and search the web — none of those three need to wait on each other. nanobot fires them all off together and waits for all three to finish, instead of doing them one at a time.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now watch the whole relay run, start to finish, for one real message:</p>
+      <div class="chat-window" data-autoplay data-speed="900">
+        <div class="chat-title">#agent-internals <button class="chat-replay">Replay</button></div>
+        <div class="chat-log">
+          <div class="chat-bubble system">New message: session tg:8821</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Restoring state, checking history length... looks fine, no compaction needed.</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Not a slash command — building the prompt now.</div>
+          <div class="chat-bubble right"><span class="who">AgentRunner</span>Calling the model with 12 tools available...</div>
+          <div class="chat-bubble right"><span class="who">AgentRunner</span>Model wants <code>get_weather</code> and <code>read_file</code> — running both at once.</div>
+          <div class="chat-bubble right"><span class="who">AgentRunner</span>Both done. Sending results back to the model for a final answer.</div>
+          <div class="chat-bubble left"><span class="who">AgentLoop</span>Saving this turn to history and sending the reply.</div>
+        </div>
+      </div>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Any time a process has "phases" — a checkout flow, a deploy pipeline, an onboarding wizard — a state machine like this one is often how it's actually built under the hood. It's also exactly why good logs name the phase, not just "something broke": a table of named stations turns "the agent is misbehaving" into "RUN failed on this turn," a question an AI tool can actually go answer.</p>
+      </div>
+      <p>Everything so far has happened inside nanobot's own walls. Next: what happens the moment nanobot needs to reach <em>outside</em> — a different chat platform, a different AI provider, or the open internet.</p>
+    </div>
+  </div>
+</section>

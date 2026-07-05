@@ -1,0 +1,155 @@
+<section class="module module-b" id="module-2">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 2</p>
+    <h2 class="module-title">Meet the cast</h2>
+    <p class="lede">We just watched a letter travel the whole route. Now let's meet everyone working at each stop — the way a theater program lists its cast and crew before the curtain goes up, so you know exactly who's responsible for what before the show starts.</p>
+
+    <div class="screen">
+      <p>Knowing which actor owns which job is exactly what lets you tell an AI coding tool "add this feature as a new channel" or "that belongs in the prop table, not the director's script" — and to guess correctly which file to open when something breaks. Here's the full cast:</p>
+
+      <div class="pattern-grid">
+        <div class="pattern-card"><h4>Channels</h4><p>The ushers who speak the audience's language — each one translates a different platform's way of sending a message into one common form everyone backstage understands.</p></div>
+        <div class="pattern-card"><h4>MessageBus</h4><p>The stage manager's call sheet — the shared list everyone reads from and writes to, so the ushers never need to talk to the actors directly.</p></div>
+        <div class="pattern-card"><h4>AgentLoop</h4><p>The director — owns the whole show for one conversation: decides what happens next, in what order, and calls the cues.</p></div>
+        <div class="pattern-card"><h4>AgentRunner</h4><p>The lead actor actually improvising the scene — on stage doing the back-and-forth with the LLM and requesting props (tools) when needed.</p></div>
+        <div class="pattern-card"><h4>ToolRegistry</h4><p>The prop table — everything the actor is allowed to reach for, catalogued and ready to hand over on request.</p></div>
+        <div class="pattern-card"><h4>Providers</h4><p>The scriptwriter — the LLM actually generating the lines; nanobot can swap which scriptwriter it's using without changing anyone else's job.</p></div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Start with the ushers. Telegram, Discord, Slack, the web UI, and a dozen-plus others all speak differently under the hood — different APIs, different message formats. Every one of them is required to sign the same <span class="glossary" tabindex="0">contract<span class="glossary-tip">A rulebook every implementation must follow, even though each one fills in the details differently. In code this is often called an "abstract class" — a template that says "you must have a method called X," without saying how X works.</span></span> before it's allowed backstage.</p>
+
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/channels/base.py:74-102</span>
+          <pre><code><span class="tok-kw">@abstractmethod</span>
+<span class="tok-kw">async def</span> <span class="tok-fn">start</span>(self) -&gt; None:
+    <span class="tok-str">"""
+    Start the channel and begin listening for messages.
+    This should be a long-running async task that:
+    1. Connects to the chat platform
+    2. Listens for incoming messages
+    3. Forwards messages to the bus via _handle_message()
+    """</span>
+
+<span class="tok-kw">@abstractmethod</span>
+<span class="tok-kw">async def</span> <span class="tok-fn">stop</span>(self) -&gt; None:
+    <span class="tok-str">"""Stop the channel and clean up resources."""</span>
+
+<span class="tok-kw">@abstractmethod</span>
+<span class="tok-kw">async def</span> <span class="tok-fn">send</span>(self, msg: OutboundMessage) -&gt; None:
+    <span class="tok-str">"""Send a message through this channel."""</span></code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>This is the contract every usher must sign. However Telegram's API and Slack's API differ under the hood, both must know how to start listening, stop, and hand a reply to their platform. Nobody else in the codebase needs to know those differences exist.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>You'd think adding a 16th usher means updating some master list somewhere. It doesn't.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/channels/manager.py:96-104</span>
+        <pre><code><span class="tok-kw">def</span> <span class="tok-fn">_init_channels</span>(self) -&gt; None:
+    <span class="tok-str">"""Initialize channels discovered via pkgutil scan + entry_points plugins."""</span>
+    <span class="tok-kw">from</span> nanobot.channels.registry <span class="tok-kw">import</span> discover_channel_names, discover_enabled
+    <span class="tok-com"># Collect enabled module names first, then only import those.</span>
+    names = discover_channel_names()</code></pre>
+      </div>
+
+      <p>nanobot scans its own <code>channels/</code> folder — and any installed plugins — for anything that looks like a channel, rather than keeping a hardcoded list somewhere that someone has to remember to update. Add a new file that follows the contract from the last screen, and it's automatically found and put to work.</p>
+
+      <p>Once a message is in, it doesn't go straight to an actor. It gets dropped on the stage manager's call sheet — the <strong>MessageBus</strong> — and the director picks it up from there. That indirection is the whole point: the usher never needs to know or care which director is on duty, or what they're doing right now.</p>
+    </div>
+
+    <div class="screen">
+      <p>Once the director hands a scene to the lead actor, that actor sometimes needs a prop — read a file, run a shell command, search the web. It doesn't wander off backstage looking for one. It requests a prop <em>by name</em> from the prop table, and the prop table hands it over — or refuses, if that prop was never catalogued.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/tools/registry.py:24-27</span>
+        <pre><code><span class="tok-kw">def</span> <span class="tok-fn">register</span>(self, tool: Tool) -&gt; None:
+    <span class="tok-str">"""Register a tool."""</span>
+    self._tools[tool.name] = tool
+    self._cached_definitions = <span class="tok-kw">None</span></code></pre>
+      </div>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/tools/registry.py:165-179</span>
+        <pre><code><span class="tok-kw">async def</span> <span class="tok-fn">execute</span>(self, name: str, params: Any) -&gt; Any:
+    <span class="tok-str">"""Execute a tool by name with given parameters."""</span>
+    hint = <span class="tok-str">"\n\n[Analyze the error above and try a different approach.]"</span>
+    tool, params, error = self.prepare_call(name, params)
+    <span class="tok-kw">if</span> error:
+        <span class="tok-kw">return</span> ToolResult.error(str(error) + hint)
+    <span class="tok-kw">try</span>:
+        <span class="tok-kw">assert</span> tool <span class="tok-kw">is not</span> <span class="tok-kw">None</span>
+        result = <span class="tok-kw">await</span> tool.execute(**params)
+        <span class="tok-punct">...</span></code></pre>
+      </div>
+
+      <p>This <span class="glossary" tabindex="0">registry<span class="glossary-tip">A lookup table you can add new entries to without changing the code that reads from it.</span></span> is, at heart, just a dictionary from tool name to tool object. When the LLM says "call <code>read_file</code> with this path," the registry looks the name up, validates the arguments, and only then actually runs it. The lead actor never touches the filesystem directly — it always goes through the prop table.</p>
+    </div>
+
+    <div class="screen">
+      <p>So who decides the director gets a lead actor to direct in the first place? One line, buried in setup:</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:294</span>
+        <pre><code>self.runner = <span class="tok-fn">AgentRunner</span>(provider)</code></pre>
+      </div>
+
+      <p>That's the seam between this module's two most important actors. The director (<code>AgentLoop</code>) owns the conversation and its memory. The lead actor (<code>AgentRunner</code>, next module's subject) owns the actual back-and-forth with the LLM and its props, one turn at a time.</p>
+
+      <p>And the lead actor's lines don't come from nowhere — they come from the scriptwriter. nanobot supports several: Claude, GPT, and others, all hidden behind one shared shape.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/providers/base.py:724-736</span>
+        <pre><code><span class="tok-kw">async def</span> <span class="tok-fn">chat_with_retry</span>(
+    self,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+    model: str | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+    <span class="tok-punct">...</span>
+    retry_mode: str = <span class="tok-str">"standard"</span>,
+    on_retry_wait: Callable[[str], Awaitable[<span class="tok-kw">None</span>]] | <span class="tok-kw">None</span> = <span class="tok-kw">None</span>,
+) -&gt; LLMResponse:
+    <span class="tok-str">"""Call chat() with retry on transient provider failures."""</span></code></pre>
+      </div>
+
+      <p>Every provider — Anthropic, OpenAI, Azure, Bedrock, and the rest — shares this same method name and shape. If the scriptwriter's line is temporarily unavailable — a rate limit, a dropped connection — this automatically waits and asks again. The rest of the cast never needs to know that happened.</p>
+    </div>
+
+    <div class="screen">
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Notice nobody here needs to change <code>AgentLoop</code> itself to add a 16th chat platform or a new AI provider. That's what software people call a <strong>stable core with pluggable edges</strong> — it's why large systems don't collapse under their own feature list as they grow.</p>
+      </div>
+
+      <p>Every actor you just met is replaceable on its own. Add a 16th channel, swap the scriptwriter for a different LLM, or add a new tool to the prop table — all without touching the director's script. That's a deliberate design rule in this codebase, not an accident. Match each actor to its job before moving on:</p>
+
+      <div class="quiz dragdrop" data-quiz="dragdrop">
+        <div class="dragdrop-chips">
+          <span class="dragdrop-chip" draggable="true" data-value="channels">Channels</span>
+          <span class="dragdrop-chip" draggable="true" data-value="bus">MessageBus</span>
+          <span class="dragdrop-chip" draggable="true" data-value="loop">AgentLoop</span>
+          <span class="dragdrop-chip" draggable="true" data-value="runner">AgentRunner</span>
+          <span class="dragdrop-chip" draggable="true" data-value="registry">ToolRegistry</span>
+          <span class="dragdrop-chip" draggable="true" data-value="provider">Providers</span>
+        </div>
+        <div class="dragdrop-zones">
+          <div class="dragdrop-zone" data-answer="registry"><span class="zone-label">The catalogue of things the actor is allowed to use</span></div>
+          <div class="dragdrop-zone" data-answer="loop"><span class="zone-label">Owns one conversation and decides what happens next</span></div>
+          <div class="dragdrop-zone" data-answer="channels"><span class="zone-label">Translates a chat platform's format into one common message shape</span></div>
+          <div class="dragdrop-zone" data-answer="provider"><span class="zone-label">Actually generates the LLM's lines, and can be swapped out</span></div>
+          <div class="dragdrop-zone" data-answer="bus"><span class="zone-label">The shared list everyone reads from and writes to</span></div>
+          <div class="dragdrop-zone" data-answer="runner"><span class="zone-label">Does the live back-and-forth with the LLM and its props</span></div>
+        </div>
+        <div class="quiz-feedback"></div>
+      </div>
+
+      <p>Knowing who's who is step one. Next: watch the director (<code>AgentLoop</code>) and lead actor (<code>AgentRunner</code>) actually run one scene from first line to last, including what happens when two lines want to be spoken at once.</p>
+    </div>
+  </div>
+</section>

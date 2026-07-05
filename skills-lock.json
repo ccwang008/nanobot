@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "codebase-onboarding": {
+      "source": "affaan-m/ECC",
+      "sourceType": "github",
+      "skillPath": "skills/codebase-onboarding/SKILL.md",
+      "computedHash": "c14dccb7906a8543f0b34126978911f8efcbd717a5b9efd3ce2b4e68ebb8b227"
+    },
+    "codebase-to-course": {
+      "source": "zarazhangrui/codebase-to-course",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "0c280ed22f1cfcb87cfcfa14d1c6d9f601fe2cc4d67d4f49941a06bde33a7e5a"
+    }
+  }
+}

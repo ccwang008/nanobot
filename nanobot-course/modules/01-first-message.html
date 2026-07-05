@@ -1,0 +1,142 @@
+<section class="module module-a" id="module-1">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 1</p>
+    <h2 class="module-title">Meet nanobot: one message's journey</h2>
+    <p class="lede">Imagine you text your nanobot on Telegram: <em>"remind me to call mom at 5pm, and check what the weather is like first."</em> Less than two seconds later you are watching it type back. This module is everything that happens in between.</p>
+
+    <div class="screen">
+      <p>First, the plain version of what nanobot even is: it is an open-source, self-hosted personal AI assistant. You run it on your own machine or server, it connects to chat apps you already use &mdash; Telegram, Discord, Slack, WeChat, a built-in web chat window, and more &mdash; and it talks to a large language model (Claude, GPT, and others) as its "brain." It can also use tools to actually get things done, not just chat: reading and writing files, running commands, searching the web. The project's own tagline is blunt about it: an open-source, ultra-lightweight personal AI agent you can truly own.</p>
+
+      <p><strong>Why should you care how the message travels?</strong> Once you can picture this whole round trip, you can tell an AI coding tool exactly <em>where</em> to add a feature &mdash; "that belongs in a channel, not in the core loop" &mdash; instead of guessing. And when something breaks, you already know which of the handful of stops to suspect first.</p>
+
+      <p>Here is a way to hold the whole trip in your head: sending a message to nanobot is like dropping a letter in a mailbox. It travels to a sorting facility, gets picked up by a caseworker who reads it, may send runners out to fetch things &mdash; a weather report, a calendar lookup &mdash; or write something on your behalf, and then a reply comes back through the same path. This module walks that whole route once, at a human pace. Every later module will zoom into one single stop along it.</p>
+    </div>
+
+    <div class="screen">
+      <p>Here is the whole route, stop by stop. Step through it.</p>
+
+      <div class="flow-animation" data-steps='[
+        {"active":["channel-send"],"packetFrom":0,"packetTo":0,"packetProgress":1,"caption":"You type your message into Telegram and hit send."},
+        {"active":["bus-in"],"packetFrom":0,"packetTo":1,"packetProgress":1,"caption":"The Telegram channel drops it into MessageBus in-tray -- first come, first served."},
+        {"active":["loop"],"packetFrom":1,"packetTo":2,"packetProgress":1,"caption":"AgentLoop, the caseworker who never stops watching the in-tray, picks it up and opens a case for this conversation."},
+        {"active":["runner"],"packetFrom":2,"packetTo":3,"packetProgress":1,"caption":"AgentRunner hands it to the LLM brain, which may send runners out for tools like checking the weather, before writing a reply."},
+        {"active":["bus-out"],"packetFrom":3,"packetTo":4,"packetProgress":1,"caption":"The finished reply is dropped in the out-tray, addressed back to your Telegram chat."},
+        {"active":["channel-deliver"],"packetFrom":4,"packetTo":5,"packetProgress":1,"caption":"The Telegram channel, watching the out-tray, delivers it. Round trip done, often in under two seconds."}
+      ]'>
+        <div class="flow-track">
+          <div class="flow-node" data-id="channel-send">Telegram<br><small>you send</small></div>
+          <div class="flow-node" data-id="bus-in">MessageBus<br><small>in-tray</small></div>
+          <div class="flow-node" data-id="loop">AgentLoop<br><small>caseworker</small></div>
+          <div class="flow-node" data-id="runner">AgentRunner<br><small>+ LLM, + tools</small></div>
+          <div class="flow-node" data-id="bus-out">MessageBus<br><small>out-tray</small></div>
+          <div class="flow-node" data-id="channel-deliver">Telegram<br><small>delivered</small></div>
+          <div class="flow-packet"></div>
+        </div>
+        <div class="flow-caption"></div>
+        <div class="flow-controls">
+          <button class="flow-step-btn" data-dir="prev">&larr; Back</button>
+          <span class="flow-progress"></span>
+          <button class="flow-step-btn" data-dir="next">Next &rarr;</button>
+          <button class="flow-replay">Replay</button>
+        </div>
+      </div>
+
+      <p>Notice that "MessageBus" shows up twice &mdash; once as an in-tray, once as an out-tray. That is not two different components, it is one shared post office with two windows. Keep scrolling and we will look at the actual code behind each stop.</p>
+    </div>
+
+    <div class="screen">
+      <p>The entire post office &mdash; the in-tray and out-tray from the animation above &mdash; is remarkably small. Here is essentially all of it.</p>
+
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/bus/queue.py:16-34</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">__init__</span>(self):
+    self.inbound: asyncio.Queue[InboundMessage] = asyncio.Queue()
+    self.outbound: asyncio.Queue[OutboundMessage] = asyncio.Queue()
+
+<span class="tok-kw">async def</span> <span class="tok-fn">publish_inbound</span>(self, msg: InboundMessage) -> <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Publish a message from a channel to the agent."""</span>
+    <span class="tok-kw">await</span> self.inbound.put(msg)
+
+<span class="tok-kw">async def</span> <span class="tok-fn">consume_inbound</span>(self) -> InboundMessage:
+    <span class="tok-str">"""Consume the next inbound message (blocks until available)."""</span>
+    <span class="tok-kw">return</span> <span class="tok-kw">await</span> self.inbound.get()
+
+<span class="tok-kw">async def</span> <span class="tok-fn">publish_outbound</span>(self, msg: OutboundMessage) -> <span class="tok-kw">None</span>:
+    <span class="tok-str">"""Publish a response from the agent to channels."""</span>
+    <span class="tok-kw">await</span> self.outbound.put(msg)</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>This whole class is really just two lines that matter: an in-tray (<code>inbound</code>) and an out-tray (<code>outbound</code>). Both are a <span class="glossary" tabindex="0">queue<span class="glossary-tip">A list where things get added at one end and taken off the other, in order &mdash; like a single-file line at a mailroom window. First come, first served.</span></span>: whichever message arrived first gets picked up first.</p>
+          <p>Every chat platform &mdash; Telegram, Slack, the web UI, all of them &mdash; drops its letters into that exact same in-tray. Nothing about the sorting facility needs to know which mailbox any given letter came from.</p>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Two independent queues, one for "in" and one for "out," is a classic pattern called a <strong>message bus</strong>. It lets two halves of a system &mdash; here, the chat channels and the agent's brain &mdash; talk to each other without either one ever needing to know how the other works internally. That is also exactly why nanobot can support a dozen chat platforms and several different AI providers without its core code caring which ones happen to be in use.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>So who is actually standing at that in-tray window, watching for new letters? That is <code>AgentLoop</code>, and its main job is a loop that never really stops.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:938-946</span>
+        <pre><code><span class="tok-kw">try</span>:
+    msg = <span class="tok-kw">await</span> asyncio.wait_for(self.bus.consume_inbound(), timeout=<span class="tok-num">1.0</span>)
+<span class="tok-kw">except</span> asyncio.TimeoutError:
+    self.auto_compact.check_expired(
+        self._schedule_background,
+        active_session_keys=self._pending_queues.keys(),
+    )
+    <span class="tok-kw">continue</span></code></pre>
+      </div>
+
+      <p>In plain English: it waits up to one second for a new letter to arrive. If nothing shows up in that second, it does not just sit idle &mdash; it uses the moment to do housekeeping, checking whether any conversation has gone quiet long enough that its memory should be tidied up, then goes right back to waiting.</p>
+
+      <p>That "wait, but do something useful instead of standing frozen" trick is possible because the whole loop is written as an <span class="glossary" tabindex="0">async task<span class="glossary-tip">Doing something and moving on to other work while it finishes, instead of standing still and waiting &mdash; like AgentLoop starting an errand for your message and immediately going back to watch for the next one.</span></span>. Nothing here demands your CPU sit and twiddle its thumbs for a whole second doing nothing.</p>
+    </div>
+
+    <div class="screen">
+      <p>Once AgentLoop actually has your letter in hand, it does something important: it does not sit there answering you before it is allowed to glance at anyone else's mail.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:1016-1017</span>
+        <pre><code>task = asyncio.create_task(self._dispatch(msg))
+self._active_tasks.setdefault(effective_key, []).append(task)</code></pre>
+      </div>
+
+      <p>It spins your message off as its own independent errand (that async task again) and immediately goes back to watching the in-tray for the next letter. Your conversation and someone else's conversation on a different chat can genuinely be in progress at the same time. <em>(Module 3 covers exactly how nanobot still keeps your own conversation in the right order while doing this.)</em></p>
+
+      <p>Somewhere inside that errand, <code>AgentRunner</code> is the one actually talking to the LLM and, if the model asks for it, dispatching "runners" out for tools &mdash; checking the weather, writing your reminder down. That is a whole module on its own later; for now, just picture it as the desk where your letter gets read and answered. Once it has an answer, the last step is simple.</p>
+
+      <div class="code-block">
+        <span class="filename">nanobot/agent/loop.py:1087-1088</span>
+        <pre><code><span class="tok-kw">if</span> response <span class="tok-kw">is not</span> <span class="tok-kw">None</span>:
+    <span class="tok-kw">await</span> self.bus.publish_outbound(response)</code></pre>
+      </div>
+
+      <p>Same trick, in reverse: the reply goes into the shared out-tray, and whichever channel adapter is watching for mail addressed to your Telegram chat picks it up and delivers it. That is the last stop in the animation above.</p>
+    </div>
+
+    <div class="screen">
+      <p>Quick check before we move on.</p>
+
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">When your message arrives, does nanobot handle it immediately, or does it get in line?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="Not quite -- your message always passes through the MessageBus queue first, even if it usually only waits a fraction of a second.">It skips straight to AgentRunner, no queue involved</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Right -- MessageBus is a queue, so your message gets in line in the in-tray. It is usually picked up almost instantly because AgentLoop is always watching, but it is still a line, not a shortcut.">It is placed in the in-tray queue and picked up in order, usually within a fraction of a second</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="nanobot does not drop messages when it is busy -- that is the whole point of the queue: nothing gets lost, it just waits its turn.">It gets dropped if AgentLoop is busy with someone else</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+
+      <p>The key thing to carry forward: nanobot's core is deliberately small, and a message is handed from stop to stop like a letter changing hands. Every stop only knows how to do its own one job &mdash; the in-tray does not need to know what a caseworker does, and the caseworker does not need to know how Telegram formats its messages. That separation of concerns is exactly why nanobot can support a dozen chat platforms and several AI providers without the core ever needing to change.</p>
+
+      <p>We just watched the whole trip happen, start to finish. Next: meet everyone working at each stop along that route.</p>
+    </div>
+  </div>
+</section>

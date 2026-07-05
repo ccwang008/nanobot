@@ -1,0 +1,142 @@
+<section class="module module-b" id="module-4">
+  <div class="module-inner">
+    <p class="module-eyebrow">Module 4</p>
+    <h2 class="module-title">The outside world</h2>
+    <p class="lede">Module 3 watched one turn run start to finish, entirely inside nanobot's own building. This module is about the border around that building — the interpreters waiting at the gate, the backup interpreter who steps in when the first one calls in sick, and the one checkpoint that every outbound request has to clear before it's allowed to leave.</p>
+
+    <div class="screen">
+      <p>Think of nanobot as a building with a border crossing. People arrive speaking different languages — Telegram's dialect, Slack's dialect, Discord's — and interpreters at the gate translate every one of them into a single shared form before anything moves further inside. If the building's usual translator for talking to the AI model is unavailable, a backup translator quietly takes over, so nobody in the building even notices the swap. And anything trying to leave the building — a tool reaching out to fetch a web page, or call another server — has to pass a checkpoint that refuses to let it wander into restricted territory.</p>
+      <p>Why this matters: nanobot runs with real power — it can read your files, run shell commands, fetch URLs. This module is what lets that power exist without becoming a security hole. It's also the part of the codebase you must never let an AI coding tool "quick fix" by routing a network call around it.</p>
+    </div>
+
+    <div class="screen">
+      <p>You already met the interpreters at the gate in Module 2: every <span class="glossary" tabindex="0">channel<span class="glossary-tip">A connector to one chat platform — Telegram, Slack, Discord, and so on.</span></span> implements the same <code>start</code> / <code>stop</code> / <code>send</code> contract, so a Telegram message and a Slack message both arrive further inside as the exact same shape, an <code>InboundMessage</code>. That's the translation happening right at the door.</p>
+      <p>There's a second kind of interpreter, further in: the one that talks to the AI model itself. If you've configured backup models, nanobot doesn't wrap just one provider — it wraps a primary provider plus a list of fallbacks, ready to step in.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/providers/factory.py:184-197</span>
+          <pre><code><span class="tok-punct">resolved = _resolve_model_preset(config, preset_name=preset_name, preset=preset)</span>
+<span class="tok-punct">provider = _make_provider_core(config, preset_name=preset_name, preset=preset, model=model)</span>
+<span class="tok-punct">fallback_presets = _resolve_fallback_presets(config, resolved)</span>
+
+<span class="tok-kw">if</span> fallback_presets:
+    provider = <span class="tok-fn">FallbackProvider</span>(
+        primary=provider,
+        fallback_presets=fallback_presets,
+        provider_factory=<span class="tok-kw">lambda</span> fb: <span class="tok-fn">_make_provider_core</span>(
+            config, preset_name=preset_name, preset=fb
+        ),
+    )
+
+<span class="tok-kw">return</span> provider</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>If a primary AI provider is down or rate-limited, this wrapper quietly tries the next one on the list instead. The rest of the codebase just calls "the provider" and never has to know whether it's talking to the first choice or the third — the swap is invisible from inside the building.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Now the checkpoint at the outbound side of the border. Before nanobot lets any tool fetch a URL, it checks the request against a no-fly list of address ranges that mean "somewhere private," never "the public internet."</p>
+      <div class="code-block">
+        <span class="filename">nanobot/security/network.py:11-22</span>
+        <pre><code><span class="tok-punct">_BLOCKED_NETWORKS = [</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"0.0.0.0/8"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"10.0.0.0/8"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"100.64.0.0/10"</span>),   <span class="tok-com"># carrier-grade NAT</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"127.0.0.0/8"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"169.254.0.0/16"</span>),   <span class="tok-com"># link-local / cloud metadata</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"172.16.0.0/12"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"192.168.0.0/16"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"::1/128"</span>),
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"fc00::/7"</span>),          <span class="tok-com"># unique local</span>
+    ipaddress.<span class="tok-fn">ip_network</span>(<span class="tok-str">"fe80::/10"</span>),         <span class="tok-com"># link-local v6</span>
+<span class="tok-punct">]</span></code></pre>
+      </div>
+      <p>These ranges cover things like your own home router, a server's loopback address, and — the one that matters most for security incidents in the wild — the address cloud providers use to serve a machine's internal secrets (<code>169.254.169.254</code>, inside that link-local range). If a URL <span class="glossary" tabindex="0">resolves<span class="glossary-tip">"Resolving a hostname" means looking up the actual numeric address a web address like example.com actually points to.</span></span> to any of these, it's blocked before a single byte is fetched.</p>
+    </div>
+
+    <div class="screen">
+      <p>Here's the checkpoint function itself — every fetch anywhere in nanobot passes through it.</p>
+      <div class="code-translation">
+        <div class="code-block">
+          <span class="filename">nanobot/security/network.py:61-77 (trimmed)</span>
+          <pre><code><span class="tok-kw">def</span> <span class="tok-fn">validate_url_target</span>(url: <span class="tok-kw">str</span>, *, allow_loopback: <span class="tok-kw">bool</span> = <span class="tok-kw">False</span>) -> <span class="tok-kw">tuple</span>[<span class="tok-kw">bool</span>, <span class="tok-kw">str</span>]:
+    <span class="tok-str">"""Validate a URL is safe to fetch: scheme, hostname, and resolved IPs."""</span>
+    <span class="tok-kw">try</span>:
+        p = <span class="tok-fn">urlparse</span>(url)
+    <span class="tok-kw">except</span> Exception <span class="tok-kw">as</span> e:
+        <span class="tok-kw">return</span> <span class="tok-kw">False</span>, <span class="tok-fn">str</span>(e)
+
+    <span class="tok-kw">if</span> p.scheme <span class="tok-kw">not in</span> (<span class="tok-str">"http"</span>, <span class="tok-str">"https"</span>):
+        <span class="tok-kw">return</span> <span class="tok-kw">False</span>, <span class="tok-str">f"Only http/https allowed, got '{p.scheme or 'none'}'"</span>
+    <span class="tok-kw">if not</span> p.netloc:
+        <span class="tok-kw">return</span> <span class="tok-kw">False</span>, <span class="tok-str">"Missing domain"</span>
+    ...</code></pre>
+        </div>
+        <div class="plain-pane">
+          <p class="plain-label">In plain English</p>
+          <p>Notice this checks the resolved address, not just the text of the URL. A sneaky domain name that looks public but is secretly pointed at an internal address still gets caught, because nanobot looks up the real destination first and checks that.</p>
+        </div>
+      </div>
+      <p>This whole family of trick — getting a server to fetch an address on your behalf that it shouldn't be able to reach — has a name: <span class="glossary" tabindex="0">SSRF<span class="glossary-tip">Server-Side Request Forgery: tricking a server into fetching an address it shouldn't be able to reach on your behalf — like tricking a hotel concierge into handing you a master key by asking very confidently.</span></span>. It's one of the most common ways a "helpful" AI tool with network access gets turned into a break-in method.</p>
+      <div class="callout">
+        <p class="callout-label">Aha!</p>
+        <p>Notice this check lives in exactly one function that every tool calls, instead of being copy-pasted into every tool that touches the network. A security rule that exists in twenty places is a security rule that's wrong in at least one of them — a boundary is only as trustworthy as the single place everything is forced to go through.</p>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>When the checkpoint blocks something, nanobot doesn't just quietly fail — it tells the AI model exactly why, in words deliberately blunt enough to stop a "creative" model from trying to route around it.</p>
+      <div class="code-block">
+        <span class="filename">nanobot/agent/runner.py:1323-1330</span>
+        <pre><code><span class="tok-punct">_SSRF_BOUNDARY_NOTE: str = (</span>
+    <span class="tok-str">"This is a non-bypassable security boundary. Stop trying to access "</span>
+    <span class="tok-str">"private/internal URLs. Do not retry with curl, wget, encoded IPs, "</span>
+    <span class="tok-str">"alternate DNS, redirects, proxies, or another tool. Ask the user for "</span>
+    <span class="tok-str">"local files, logs, screenshots, or an explicit safe public URL instead. "</span>
+    <span class="tok-str">"If the user explicitly trusts this private URL, ask them to whitelist "</span>
+    <span class="tok-str">"the exact IP/CIDR via tools.ssrfWhitelist."</span>
+<span class="tok-punct">)</span></code></pre>
+      </div>
+      <p>That's the message the model itself sees the moment it hits the wall. It names the workarounds — curl, wget, encoded IPs, alternate DNS, redirects, proxies — and closes each one off, because a capable model might otherwise treat a security block as a bug to engineer around rather than a boundary to respect.</p>
+      <div class="flow-animation" data-steps='[
+        {"active":["tool"],"packetFrom":0,"packetTo":0,"packetProgress":1,"caption":"A tool wants to fetch a URL on the model&#39;s behalf."},
+        {"active":["checkpoint"],"packetFrom":0,"packetTo":1,"packetProgress":1,"caption":"validate_url_target checks the scheme, the hostname, and the resolved IP."},
+        {"active":["blocked"],"packetFrom":1,"packetTo":2,"packetProgress":1,"caption":"http://169.254.169.254/ resolves to cloud metadata — blocked before any request leaves the building."},
+        {"active":["allowed"],"packetFrom":1,"packetTo":3,"packetProgress":1,"caption":"https://api.weather.gov resolves to a public address — allowed through and fetched."}
+      ]'>
+        <div class="flow-track">
+          <div class="flow-node" data-id="tool">Tool call</div>
+          <div class="flow-node" data-id="checkpoint">Checkpoint</div>
+          <div class="flow-node" data-id="blocked">Blocked</div>
+          <div class="flow-node" data-id="allowed">Fetched</div>
+          <div class="flow-packet"></div>
+        </div>
+        <div class="flow-caption"></div>
+        <div class="flow-controls">
+          <button class="flow-step-btn" data-dir="prev">&larr; Back</button>
+          <span class="flow-progress"></span>
+          <button class="flow-step-btn" data-dir="next">Next &rarr;</button>
+          <button class="flow-replay">Replay</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="screen">
+      <p>Try it yourself: using the blocked-network ranges from earlier in this module, which of these would the checkpoint stop?</p>
+      <div class="quiz" data-quiz="mc">
+        <p class="quiz-question">Which of these would nanobot's checkpoint block?</p>
+        <ul class="quiz-options">
+          <li><button class="quiz-option" data-correct="false" data-explain="example.com resolves to a normal public address — nothing in the blocked ranges matches, so this one is allowed through.">http://example.com</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Correct — 169.254.169.254 falls inside 169.254.0.0/16, the link-local range cloud providers use to serve a machine's internal metadata and secrets. Blocked.">http://169.254.169.254/</button></li>
+          <li><button class="quiz-option" data-correct="true" data-explain="Correct — 10.0.0.5 falls inside 10.0.0.0/8, a private network range. That's someone's internal network, not the public internet. Blocked.">http://10.0.0.5/admin</button></li>
+          <li><button class="quiz-option" data-correct="false" data-explain="api.weather.gov resolves to a public government address, outside every range in _BLOCKED_NETWORKS — allowed through.">https://api.weather.gov</button></li>
+        </ul>
+        <div class="quiz-feedback"></div>
+      </div>
+      <p>We've covered how nanobot talks to the world safely — translating everything that crosses in, backing up the interpreter that talks to the model, and checkpointing everything that tries to go back out. Next: what nanobot does with everything it learns once the conversation is over — including a genuinely clever trick borrowed from how your own brain works.</p>
+    </div>
+  </div>
+</section>
